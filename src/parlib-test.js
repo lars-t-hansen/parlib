@@ -10,6 +10,7 @@ testFloatSharedVar();
 testRefSharedVar();
 testIntArray();
 testFloatArray();
+testAdd();
 
 function testLock() {
     print("testLock");
@@ -94,4 +95,13 @@ function testFloatArray() {
 	var y = SharedArray.int32.fromRef(r._base);
     } catch (e) { var thrown=true; }
     assertEq(thrown, true);
+}
+
+function testAdd() {
+    print("testAdd");
+    var T = new SharedStruct.Type({x: SharedStruct.atomic_int32});
+    var q = new T({x:1});
+    assertEq(q.get_x(), 1);
+    q.add_x(1);
+    assertEq(q.get_x(), 2);
 }

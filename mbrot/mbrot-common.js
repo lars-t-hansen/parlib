@@ -1,35 +1,53 @@
-// Parallel mandelbrot: Common code
+// Parallel mandelbrot: Common code.
+// Include this first in both master and slaves.
 
-load("parlib.js")
+const g_left = -2.5;
+const g_right = 1.0;
+const g_top = 1.0;
+const g_bottom = -1.0;
 
-const height = 1024;
-const width = 1024;
+// Pixel grid.  (0,0) correspons to (bottom,left)
+const height = Math.floor((g_top-g_bottom)*512);
+const width = Math.floor((g_right-g_left)*512);
 
-// These typedefs are common to master + slaves
+const numSlices = 100;
+
 const SS = SharedStruct;
-const SA = SharedArray;
-const Subgrid = SS.Type({top:SS.float64,
-			 left:SS.float64,
-			 bottom:SS.float64,
-			 right:SS.float64});
-const Subgrids = SA.Type(Subgrid);
-const Coord = SS.Type({queue:SS.ref,          // Subgrids
-		       qnext:SS.atomic_int32, // Next element to pick up in that grid
+const Coord = SS.Type({queue:SS.ref,          // SharedInt32Array: representing the low y coordinate in the slice
+		       qnext:SS.atomic_int32, // Next element to pick up in the queue
 		       idle:SS.atomic_int32,  // Number of workers idle
-		       mem:SS.ref});          // SharedArray.float64
+		       mem:SS.ref});          // SharedArray.int32(height*width)
 
-function perform(coord) {
-    const mem = coord.get_mem(SharedArray.float64);
-    const queue = coord.get_queue(Subgrids);
+function perform(coord, who) {
+    const mem = coord.get_mem(SharedArray.int32);
+    const queue = coord.get_queue(SharedArray.int32);
+    var items = 0;
+    var sumit = 0;
     for (;;) {
-	let v = coord.add_qnext(1);
+	var v = coord.add_qnext(1);
 	if (v >= queue.length)
 	    break;
-	let o = queue.get(Subgrid, v);
-	mbrot(mem, o.top, o.left, o.bottom, o.right);
+	var ybottom = queue[v];
+	var ytop = Math.min(height, Math.ceil(ybottom + (height / numSlices)));
+	var MAXIT = 1000;
+	for ( var Py=ybottom ; Py < ytop ; Py++ ) {
+	    for ( var Px=0 ; Px < width ; Px++ ) {
+		var x0 = g_left+(Px/width)*(g_right-g_left);
+		var y0 = g_bottom+(Py/height)*(g_top-g_bottom);
+		var x = 0.0;
+		var y = 0.0;
+		var it = 0;
+		while (x*x + y*y < 4 && it < MAXIT) {
+		    var xtemp = x*x - y*y + x0;
+		    y = 2*x*y + y0;
+		    x = xtemp;
+		    it++;
+		}
+		sumit += it;
+		mem[Py*width+Px] = it;
+	    }
+	}
+	items++;
     }
-    coord.add_idle(1);
-}
-
-function mbrot(...) {
+    console.log(who + " finished " + items + " items for " + sumit + " iterations");
 }

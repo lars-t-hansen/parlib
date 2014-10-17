@@ -200,6 +200,29 @@ const SharedHeap = {};
 
 var sharedVar0;
 
+SharedHeap.allocate =
+    function (nbytes) {
+	const sixteen = 16*1024*1024;
+	if (nbytes < 4096)
+	    nbytes = 4096;
+	if (nbytes < sixteen) {
+	    // Must be power of 2
+	    var k = 0;
+	    while (nbytes != 1) {
+		if (nbytes & 1)
+		    nbytes += 1;
+		k++;
+		nbytes >>= 1;
+	    }
+	    nbytes <<= k;
+	}
+	else if (nbytes % sixteen) {
+	    // Must be multiple of 16M
+	    nbytes = (nbytes + (sixteen - 1)) & ~(sixteen - 1);
+	}
+	return new SharedArrayBuffer(nbytes);
+    };
+
 SharedHeap.setup =
     function (sab, whoami) {
         _sab = sab;
@@ -216,7 +239,7 @@ SharedHeap.setup =
                 throw new Error("Internal error: bad SharedVar location");
             break;
         case "slave":
-            sharedVar0 = SharedVar.fromRef(_sharedVar_loc);
+            sharedVar0 = SharedVar.ref.fromRef(_sharedVar_loc);
             break;
         default:
             throw new Error("Invalid shared heap initialization specification: " + whoami);
@@ -237,8 +260,8 @@ SharedHeap.allocStorage =
         // free list management, a local heap to avoid sync overhead,
         // etc.
         for(;;) {
-            let v = _iab[_allocptr_loc];
-            let t = v + nwords;
+            var v = _iab[_allocptr_loc];
+            var t = v + nwords;
             if (t >= _iab[_alloclim_loc])
                 throw new Error("OOM");
             if (Atomics.compareExchange(_iab, _allocptr_loc, v, t) == v)
@@ -295,7 +318,7 @@ function SharedArrayConstructor(d, constructor) {
             p = _a2;
             nelements = _a3;
             if (d != _iab[p])
-                throw new Error("Bad reference: unmatched descriptor: wanted " + d + ", got " + _iab[p]);
+                throw new Error("Bad reference: unmatched descriptor: wanted " + d + ", got " + _iab[p] + " @" + p);
         }
         else {
             nelements = _a1;    // _a2 and _a3 are not supplied
@@ -314,6 +337,7 @@ SharedArray.int32 =
 SharedArray.int32._desc = _array_int32_desc;
 SharedArray.int32.fromRef =
     function (r) {
+	if (r == 0) return null;
         return new SharedArray.int32(_noalloc, r, _iab[r+1]/4);
     }
 
@@ -333,6 +357,7 @@ SharedArray.float64 =
 SharedArray.float64._desc = _array_float64_desc;
 SharedArray.float64.fromRef =
     function (r) {
+	if (r == 0) return null;
         return new SharedArray.float64(_noalloc, r, _iab[r+1]/8);
     }
 
@@ -414,7 +439,7 @@ SharedStruct.Type =
             if (i.charAt(0) == '$')
                 cprop.push([i, loc]);
             if (f === SharedStruct.int32) {
-		let a = true;
+		var a = true;
                 if (i.charAt(0) != '$') {
                     acc.push([i, 
                               `function() { return _iab[this._base + ${loc}] }`,
@@ -451,7 +476,7 @@ SharedStruct.Type =
                 loc++;
             }
             else if (f === SharedStruct.float64) {
-		let a = true;
+		var a = true;
                 if (i.charAt(0) != '$') {
                     acc.push([i, 
                               `function() { return _dab[(this._base + ${loc}) >> 1] }`,
@@ -518,13 +543,13 @@ SharedStruct.Type =
                 loc++;
             }
             else if (f === SharedStruct.ref) {
-		let a = true;
+		var a = true;
                 if (i.charAt(0) != '$') {
                     acc.push([i, 
                               `function(c) { return c.fromRef(_iab[this._base + ${loc}]) }`,
                               `function(v) { return _iab[this._base + ${loc}] = (v ? v._base : 0); }`]);
 		    if (i.charAt(0) != '_') {
-			init.push(`_iab[this._base + ${loc}] = _v.${i}`); // undefined => nan => 0
+			init.push(`var tmp = _v.${i}; _iab[this._base + ${loc}] = (tmp ? tmp._base : 0)`); // undefined => nan => 0
 			zinit.push(`_iab[this._base + ${loc}] = 0`);
 			a = false;
 		    }
@@ -547,7 +572,7 @@ SharedStruct.Type =
 			       return c.fromRef(Atomics.compareExchange(_iab, this._base + ${loc}, o, n));
 			   }`]);
 		if (i.charAt(0) != '_') {
-                    init.push(`_iab[this._base + ${loc}] = _v.${i}`);
+                    init.push(`var tmp = _v.${i}; _iab[this._base + ${loc}] = (tmp ? tmp._base : 0)`);
                     zinit.push(`_iab[this._base + ${loc}] = 0`);
 		}
 		else
@@ -583,7 +608,7 @@ SharedStruct.Type =
         var cprops = '';
         for ( var [i,p] of cprop )
             cprops += `c.${i} = ${p};\n`;
-	let finits =
+	var finits =
 	    zinits != '' || inits != '' ? 
 	    `if (typeof _v !== "object" || _v === null) {
                 ${zinits}
@@ -592,10 +617,10 @@ SharedStruct.Type =
                 ${inits}
              }` :
 	"";
-        let code =
+        var code =
             `(function () {
 		"use strict";
-                let c = function (_v) {
+                var c = function (_v) {
                     if (_v === _noalloc) return;
                     SharedHeap.alloc(${desc}, this);
 		    ${ainits}
@@ -604,12 +629,13 @@ SharedStruct.Type =
                 c._desc = ${desc};
                 c.fromRef = SharedObjectFromReffer(c);
                 ${cprops}
-                let p = new SharedObjectProto(\'${tag ? String(tag) : "(anonymous)"}\');
+                var p = new SharedObjectProto(\'${tag ? String(tag) : "(anonymous)"}\');
                 ${accs}
 		${meths}
                 c.prototype = p;
                 return c;
             })();`;
+	//print(code);
 	// TODO: Is this eval() safe?  Note the code that is being run is strict.
         return eval(code);
     };
@@ -679,7 +705,7 @@ var Lock =
 	    function () {
 		const iab = _iab;
 		const index = this._base + $index;
-		let c = 0;
+		var c = 0;
 		if ((c = Atomics.compareExchange(iab, index, 0, 1)) != 0) {
 		    do {
 			if (c == 2 || Atomics.compareExchange(iab, index, 1, 2) != 0)
@@ -692,7 +718,7 @@ var Lock =
 	    function () {
 		const iab = _iab;
 		const index = this._base + $index;
-		let v0 = Atomics.sub(iab, index, 1);
+		var v0 = Atomics.sub(iab, index, 1);
 		if (v0 != 1) { // Wake up a waiter if there are any.
 		    Atomics.store(iab, index, 0);
 		    Atomics.futexWake(iab, index, 1);
