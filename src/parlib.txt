@@ -1,0 +1,307 @@
+Introduction
+------------
+
+Both the master worker (or main thread) program and the slave workers
+must include parlib.js.
+
+(More here)
+
+
+Shared heap
+-----------
+To initialize the shared heap, do this:
+
+(1) On the master, create a shared heap and set it up:
+
+      var myheap = new SharedArrayBuffer(4*1024*1024);    // 4MB
+      SharedHeap.setup(myheap, "master");
+
+(2) Send the shared heap to the slaves:
+
+      w.postMessage(myheap, [myheap]);
+
+(3) Each slave receives the heap in its event handler and also sets it
+    up locally:
+
+      function (ev) {
+        var myheap = ev.data;
+        SharedHeap.setup(myheap, "slave");
+      }
+
+Objects can now be allocated in the shared heap and communicated among
+all the workers, as described in the following.
+
+
+Shared variable objects
+-----------------------
+There is a shared variable type called "SharedVar".  A new shared
+variable (which is also a shared object) is created in a worker with
+"new SharedVar.T()" where T is one of the predefined types: ref,
+int32, and float64.  For example,
+
+   var v = new SharedVar.float64()
+
+To write a value into a shared variable use "put()":
+
+   v.put(3.14159)
+
+To read a value from a shared variable use "get()":
+
+   var w = v.get()
+
+When reading from a SharedVar.ref the constructor for the object type
+in the variable must be passed, so that the object can be created
+properly:
+
+   // Sender
+   r.put(obj)
+...
+   // Receiver
+   var w = r.get(SharedArray.int32)  // Note constructor argument
+
+Values of SharedVar.ref may be null or shared objects: not any other
+non-shared-object value.
+
+(SharedVar put and get are memory synchronization points.)
+
+
+Bootstrapping communication among workers
+-----------------------------------------
+There is a pre-defined SharedVar.ref called "sharedVar0", which can be
+used among workers to communicate setup information, as follows:
+
+(1) On the master, before sharing the heap with the slaves, create a
+    shared data structure containing communication instructions and
+    place it in sharedVar0:
+
+      sharedVar0.put(obj)
+
+(2) On the slave, after initializing the shared heap, get those
+    instructions from the shared variable:
+
+      var obj = sharedVar0.get(<constructor>)
+
+The initial value of sharedVar0 is null.
+
+
+Array objects
+-------------
+Primitive shared memory array types are constructed with the
+SharedArray constructors, for predefined types int32, float64, and
+ref.
+
+(1) On any worker, create an array of int32 like this:
+
+      var a = new SharedArray.int32(100);
+
+    The type of a in this case is SharedInt32Array, which will
+    benefit from full JIT optimization and can be accessed using
+    standard element access syntax:
+
+      a[0] = 37;
+      a[1] = 42 + a[0];
+
+(2) Send the array to another worker via a shared variable, for
+    example:
+
+      // Sender
+      sharedVar0.put(a);
+    ...
+      // Receiver
+      var x = sharedVar0.get(SharedArray.int32)
+
+When writing a value to a SharedArray.ref element the value may be
+null or a shared object.
+
+The value read from a SharedArray.ref with the [] operator will appear
+to be an integer; it *must immediately* be processed with an
+appropriate constructor.  For example if the value's type is
+MySharedType then do this:
+
+     var x = MySharedType.fromRef(a[10])
+
+Shared array read and write are /not/ synchronization points.
+
+
+Lock objects
+------------
+There is a predefined "Lock" object type representing a shared-memory
+mutex.  It has simple methods called "lock()" and "unlock()", and also
+a method called "invoke()" that takes a thunk and invokes a thunk with
+the lock held.
+
+Locks are not (at present) recursive.
+
+Lock and unlock operations are memory synchronization points.  (To
+be discussed.)
+
+
+Structure types and structure objects
+-------------------------------------
+
+The object "SharedStruct" contains types and type constructors for
+shared structure values, somewhat similar to TypedObjects.  To
+construct a 3D point structure:
+
+    var Point3D = SharedStruct.Type({x:SharedStruct.int32,
+                                     y:SharedStruct.int32,
+                                     z:SharedStruct.int32})
+
+Other types are SharedStruct.float64, SharedStruct.atomic_int32,
+SharedStruct.atomic_float64, SharedStruct.ref, and
+SharedStruct.atomic_ref.  The ref types are special: they must be
+applied to a structure type:
+
+    var Node = SharedStruct.Type({v:SharedStruct.int32,
+                                  p:SharedStruct.ref(Point3D)})
+
+The reason for that is that referencing a ref field returns a new
+front object of the correct type.  [Would be useful to avoid it, and
+instead reconstruct from the type tag.]
+
+A structure instance has getters and setters for the various fields,
+currently as methods: if p is a Point32 then p.get_x() will read the x
+field and p.set_y(37) will set the y field.
+
+For atomic int32 and float64 fields "x" there are also methods
+add_x(v) to atomically add to the field, and
+compareExchange_x(oldval,newval) to compare-and-exchange values.  Both
+return the old value of the cell.
+
+For atomic ref fields "x" there is a method
+compareExchange_x(c,oldval,newval) to compare-and-exchange values; c
+is the constructor that is needed to return the old value of the cell.
+
+A structure instance is constructed by passing an object literal for
+the field values:
+
+    var p = new Point32({x:10, y:20, z:30})
+
+If the initializer object is absent, or any field in it is absent,
+then the structure field is initialized with an appropriate zero value
+or null pointer.  Superflous fields in the initializer object are
+ignored.
+
+As ref types require a type argument there is a way to forward-declare
+a type:
+
+   var F = SharedStruct.Forward();
+   var N = SharedStruct.Type({v:SharedStruct.int32, next:F});
+   F.bind(N);
+
+The following hacks are occasionally useful:
+
+- A field whose name starts with '_' will be initialized to zero/null
+  regardless of whether a value is present for it in the initializer.
+
+- A field whose name starts with '$' is a plain data property:
+   - the field cannot be atomic
+   - no getter or setter is generated for it
+   - it is always zero/null-initialized
+   - the word offset of the field within the structure is recorded
+     as a property on the constructor, named as the field (see eg
+     the Lock type's implementation)
+
+
+Odds and ends
+-------------
+If a shared object is sent to another worker and then back to the
+originator it will usually come back as a JS object that has a
+different identity (though it references the same underlying shared
+memory).  To compare two shared objects a and b for shared-memory
+identity, use this:
+
+      SharedHeap.equals(a,b)
+
+
+Storage management [NOT IMPLEMENTED]
+------------------------------------
+
+Storage management is currently manual: *All* shared objects in the
+local heap are retained until you call "release" on them.  If you drop
+a pointer to a shared object, the shared storage for that object will
+leak.
+
+Once all references to an object in the shared heap are gone, that
+object can be garbage collected.
+
+
+Discussion: type system
+-----------------------
+
+Typed vs untyped ref variables:  Right now it's a mess.
+
+ - SharedVar.ref is untyped because sharedVar0 requires it to be, that
+   means that the 'get' method takes a constructor argument.
+
+ - SharedArray.ref (not implemented) is untyped /and/ has the usual []
+   accessor because it's an int array, which means that the user must
+   call T.fromRef(r) on the reference value r extracted with []
+
+ - SharedStruct.ref is typed, for the sake of convenience (looking
+   forward to when we have a proper getter).  This causes complexity
+   with the Forward reference and with type definition in general.
+
+The *right* way is for the loading of a reference to reconstruct the
+object automatically from the bits (ie untyped fields), which means
+that there must be enough type information in the object to do that.
+That means all type information must be in the shared heap and that
+each shared object must point to it.  It also means that when anybody
+constructs a new type it must be linked to any existing type that it
+is supposed to be equivalent with, somehow.
+
+The *next best* way is for that linking to be by name ("brand"): every
+shared type is branded, and creating a shared type will link two types
+if they are the same brand, it will be an error if they do not have
+the same structure.
+
+We should get rid of the requirement for ref(T) - for now we should
+require the getter to take a constructor, as for SharedVar.  We should
+get rid of Forward.
+
+Ergo there is a linked list (say) of type descriptors which are just
+structures with name tags:
+
+    struct {
+        desc: int32
+        name: int32  -> pointer to halfwords representing name
+        cindex: int32
+    }
+
+    // length halfword
+    // first char ...
+    // second char ...
+    ...
+
+There needs to be a lock on this list.
+
+Oops, this means: when reading a value out of the heap the type must
+have been registered locally because we must be able to find the
+constructor, so there needs to be a constructor index which is
+/global/ and allocated by whoever gets to define the type first, and
+if we read a value for which there isn't a type then we blow up.
+
+
+As far as the SharedArray is concerned we want to overload the getter
+and setter, which will slow things down a lot in their use.  So maybe
+leave that as a special case.  Or, add a 'get(c, n)' method that
+gets element n and applies c.fromRef - for symmetry.  For further symmetry
+there should be a get(n) method on the other arrays, maybe.
+
+
+
+Discussion: performance
+-----------------------
+
+A new front object is created each time we reference a ref property.
+This is bad.  But the front objects are quite small, and (by and
+large) have only the _base property on them, so it may not be /very/
+bad.
+
+
+
+Discussion: strings
+-------------------
+
+TBI.  Are shared strings immutable things like normal strings or are
+they just SharedUint16Arrays?
