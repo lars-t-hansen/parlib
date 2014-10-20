@@ -23,10 +23,12 @@ function perform(coord, who) {
     const queue = coord.get_queue(SharedArray.int32);
     var items = 0;
     var sumit = 0;
+    var slices = "";
     for (;;) {
 	var v = coord.add_qnext(1);
 	if (v >= queue.length)
 	    break;
+	slices += v + " ";
 	var ybottom = queue[v];
 	var ytop = Math.min(height, Math.ceil(ybottom + (height / numSlices)));
 	var MAXIT = 1000;
@@ -44,10 +46,11 @@ function perform(coord, who) {
 		    it++;
 		}
 		sumit += it;
-		mem[Py*width+Px] = it;
+		var g = 255 - (it > 255 ? 255 : it);
+		mem[Py*width+Px] = (255 << 24) | (g << 8); // rgba, BUT little-endian
 	    }
 	}
 	items++;
     }
-    console.log(who + " finished " + items + " items for " + sumit + " iterations");
+    console.log(who + " finished " + items + " items for " + sumit + " iterations: " + slices);
 }

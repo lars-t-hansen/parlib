@@ -1,3 +1,11 @@
+// Misc improvements here:
+//  - Use a Barrier for the synchronization, maybe, or just do the
+//    computation on workers and let the main thread do something else.
+//
+// To do:
+//  - Figure out why the spinlock does not work well
+//  - Worry about worker priority in RuntimeServices.cpp
+
 const numWorkers = 3;
 
 var workers = [];
@@ -22,26 +30,33 @@ for ( var w of workers )
 setTimeout(function () { 
     perform(coord, "master");
     waitForIt();
-}, 1000);
+}, 750);			// The 750 is to give the slaves a chance to do something
+
+var startWait;
 
 function waitForIt() {
+    if (!startWait)
+	startWait = new Date();
+
     // The obvious spinlock does not work well.  Why is that?  On x86 this will just be
     // a regular load.  We depend on the load going to the memory system.
     // The write uses a LOCK CMPXCHG which should be enough.
-    // I suppose it could be that somebody wants the spinning core to finish work.
+    // I suppose it could be that somebody needs the spinning core for finishing work,
+    // but it's not obvious.
 
-    //var x;
-    //while ((x = coord.get_idle()) < numWorkers)
-    //;
+    // Nor does a CAS spinlock work any better than one that simply loads:
+    //while (coord.compareExchange_idle(3,0) != 3)
+    //    ;
 
     if (coord.get_idle() < numWorkers) {
 	setTimeout(waitForIt, 10);
 	return;
     }
+
+    endWait = new Date();
+    console.log(endWait - startWait);
     displayIt();
-
 }
-
 
 function displayIt() {
     var canvas = document.getElementById("mycanvas");
@@ -50,21 +65,14 @@ function displayIt() {
     
     var cx = canvas.getContext('2d');
 
-    var id  = cx.createImageData(1,1);
-    var pix = id.data;
-    var pixs = 0;
+    var X = 500;
+    var W = 1000;
+    var id  = cx.createImageData(W,1);
     for ( var y=200 ; y < 800 ; y++ ) {
-	for ( var x=500 ; x < 1500 ; x++ ) {
-	    var v = mem[y*width+x];
-	    var c = 255 - (v > 255 ? 255 : v);
-	    pix[0] = 0;
-	    pix[1] = c;
-	    pix[2] = 0;
-	    pix[3] = 255;
-	    cx.putImageData( id, x, y );
-	    pixs++;
-	}
+	var tmp = new SharedUint8Array(sab, mem._base + y*width*4 + X*4, W*4);
+	id.data.set(tmp);
+	cx.putImageData( id, X, y );
     }
 
-    console.log("done " + pixs);
+    console.log("done ");
 }
