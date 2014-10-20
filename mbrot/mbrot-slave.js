@@ -1,4 +1,5 @@
 importScripts("../src/parlib.js");
+importScripts("../src/util.js");
 importScripts("mbrot-common.js");
 
 onmessage =
@@ -7,5 +8,5 @@ onmessage =
 	SharedHeap.setup(ev.data, "slave");
 	var coord = sharedVar0.get(Coord);
 	perform(coord, "slave");
-	coord.add_idle(1);
+	coord.get_barrier(CyclicBarrier).await();
     }

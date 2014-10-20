@@ -694,14 +694,16 @@ SharedVar.ref =
 //   1: locked with no waiters
 //   2: locked with possible waiters
 
+// _Lock is exposed to Cond.
+const _Lock = SharedStruct.Type({$index: SharedStruct.int32}, "Lock");
+
 var Lock =
     (function () {
 	"use strict";
 
-	const Lock = SharedStruct.Type({$index: SharedStruct.int32}, "Lock");
-	const $index = Lock.$index;
+	const $index = _Lock.$index;
 
-	Lock.prototype.lock = 
+	_Lock.prototype.lock = 
 	    function () {
 		const iab = _iab;
 		const index = this._base + $index;
@@ -714,7 +716,7 @@ var Lock =
 		}
 	    };
 
-	Lock.prototype.unlock =
+	_Lock.prototype.unlock =
 	    function () {
 		const iab = _iab;
 		const index = this._base + $index;
@@ -725,7 +727,7 @@ var Lock =
 		}
 	    };
         
-	Lock.prototype.invoke =
+	_Lock.prototype.invoke =
 	    function (thunk) {
 		try {
 		    this.lock();
@@ -736,6 +738,69 @@ var Lock =
 		}
 	    };
 
-	return Lock;
+	return _Lock;
     })();
 
+//////////////////////////////////////////////////////////////////////
+//
+// Condition variables.
+//
+// new Cond({lock:v}) creates a condition variable that can wait on
+// the lock 'v'.
+//
+// cond.wait() atomically unlocks its lock (which must be held by the
+// calling thread) and waits for a wakeup on cond.  If there were waiters
+// on lock then they are woken as the lock is unlocked.
+//
+// cond.wake() wakes one waiter on cond and attempts to re-aqcuire
+// the lock that it held as it waited.
+//
+// cond.wakeAll() wakes all waiters on cond.  They will race to
+// re-acquire the locks they held as they waited; it needn't all be
+// the same locks.
+//
+// The condvar code is based on http://locklessinc.com/articles/mutex_cv_futex.
+
+var Cond =
+    (function () {
+	"use strict";
+
+	const Cond = SharedStruct.Type({lock: SharedStruct.ref, $seq:SharedStruct.int32}, "Cond");
+	const $seq = Cond.$seq;
+	const $index = _Lock.$index;
+
+	Cond.prototype.wait =
+	    function () {
+		const loc = this._base + $seq;
+		const seq = Atomics.load(_iab, loc);
+		const lock = this.get_lock(Lock);
+		const index = lock._base + $index;
+		lock.unlock();
+		Atomics.futexWait(_iab, loc, seq);
+		while (Atomics.store(_iab, index, 2) != 0)
+		    Atomics.futexWait(_iab, index, 2);
+	    };
+
+	Cond.prototype.wake =
+	    function () {
+		const loc = this._base + $seq;
+		Atomics.add(_iab, loc, 1);
+		Atomics.futexWake(_iab, loc, 1);
+	    };
+
+	Cond.prototype.wakeAll =
+	    function () {
+		const loc = this._base + $seq;
+		const index = this.get_lock(Lock)._base + $index;
+		var seq = Atomics.add(_iab, loc, 1) + 1;
+		// Here it seems like the old supposedly "buggy" form of FUTEX_REQUEUE would be better.
+		// I'm not 100% sure the loop is necessary.  The intent is that a wake() that sneaks in
+		// should not prevent the rest of the waiters from being woken.  Since we don't
+		// unlock anything here it should be safe, the only ill effect might be that there
+		// will be a little contention.
+		while (Atomics.futexWakeOrRequeue(_iab, loc, 1, seq, index) == Atomics.NOTEQUAL)
+		    seq = Atomics.load(_iab, loc);
+	    };
+
+	return Cond;
+    })();

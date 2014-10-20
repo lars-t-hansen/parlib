@@ -298,6 +298,16 @@ This is bad.  But the front objects are quite small, and (by and
 large) have only the _base property on them, so it may not be /very/
 bad.
 
+We see this at work on the Cond type.  Cond -> Lock.  So is there a
+pointer from the Cond front object to the Lock front object, or does
+every reference to the latter have to go through the shared storage
+and reconstruct a new front object for the lock every time?
+
+Basically the constructor protocols require the latter: it becomes
+awkward, if a shared object can be instantiated several times, to have
+any kind of state in the front object, unless that state is just a
+cache of immutable data.
+
 
 
 Discussion: strings

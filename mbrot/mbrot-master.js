@@ -17,7 +17,8 @@ SharedHeap.setup(sab, "master");
 
 const queue = new SharedArray.int32(numSlices);
 const mem = new SharedArray.int32(height*width);
-const coord = new Coord({queue: queue, qnext: 0, idle: 0, mem: mem});
+const barrier = (new CyclicBarrier).init(numWorkers+1);
+const coord = new Coord({queue: queue, qnext: 0, mem: mem, barrier: barrier});
 
 for ( var i=0 ; i < numSlices ; i++ )
     queue[i] = i*Math.floor(height/numSlices);
@@ -38,6 +39,8 @@ function waitForIt() {
     if (!startWait)
 	startWait = new Date();
 
+    coord.get_barrier(CyclicBarrier).await();
+
     // The obvious spinlock does not work well.  Why is that?  On x86 this will just be
     // a regular load.  We depend on the load going to the memory system.
     // The write uses a LOCK CMPXCHG which should be enough.
@@ -48,10 +51,10 @@ function waitForIt() {
     //while (coord.compareExchange_idle(3,0) != 3)
     //    ;
 
-    if (coord.get_idle() < numWorkers) {
-	setTimeout(waitForIt, 10);
-	return;
-    }
+//    if (coord.get_idle() < numWorkers) {
+//	setTimeout(waitForIt, 10);
+//	return;
+//    }
 
     endWait = new Date();
     console.log(endWait - startWait);
@@ -69,6 +72,8 @@ function displayIt() {
     var W = 1000;
     var id  = cx.createImageData(W,1);
     for ( var y=200 ; y < 800 ; y++ ) {
+	// This is gross because it knows too much about internals.  It seems clear
+	// that we'd want to abstract / hide it somehow.
 	var tmp = new SharedUint8Array(sab, mem._base + y*width*4 + X*4, W*4);
 	id.data.set(tmp);
 	cx.putImageData( id, X, y );
