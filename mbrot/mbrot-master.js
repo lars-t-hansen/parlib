@@ -18,7 +18,7 @@ SharedHeap.setup(sab, "master");
 const queue = new SharedArray.int32(numSlices);
 const mem = new SharedArray.int32(height*width);
 const barrier = (new CyclicBarrier).init(numWorkers+1);
-const coord = new Coord({queue: queue, qnext: 0, mem: mem, barrier: barrier});
+const coord = new Coord({queue: queue, use_barrier: 1, mem: mem, barrier: barrier});
 
 for ( var i=0 ; i < numSlices ; i++ )
     queue[i] = i*Math.floor(height/numSlices);
@@ -39,7 +39,8 @@ function waitForIt() {
     if (!startWait)
 	startWait = new Date();
 
-    coord.get_barrier(CyclicBarrier).await();
+    if (coord.get_use_barrier())
+	coord.get_barrier(CyclicBarrier).await();
 
     // The obvious spinlock does not work well.  Why is that?  On x86 this will just be
     // a regular load.  We depend on the load going to the memory system.
@@ -51,10 +52,12 @@ function waitForIt() {
     //while (coord.compareExchange_idle(3,0) != 3)
     //    ;
 
-//    if (coord.get_idle() < numWorkers) {
-//	setTimeout(waitForIt, 10);
-//	return;
-//    }
+    if (!coord.get_use_barrier()) {
+	if (coord.get_idle() < numWorkers) {
+	    setTimeout(waitForIt, 10);
+	    return;
+	}
+    }
 
     endWait = new Date();
     console.log(endWait - startWait);

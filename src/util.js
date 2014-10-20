@@ -50,7 +50,7 @@ var CyclicBarrier =
 		if (index+1 == this.get__parties()) {
 		    this.set__index(0);
 		    this.add__seq(1)
-		    console.log("waking all");
+		    //console.log("waking all");
 		    cond.wakeAll();
 		    lock.unlock();
 		    return index;
@@ -60,10 +60,10 @@ var CyclicBarrier =
 		var flag = this.get__seq();
 		var it = 0;
 		while (flag == this.get__seq()) {
-		    console.log("sleeping #" + index + " @ " + it++);
+		    //console.log("sleeping #" + index + " @ " + it++);
 		    cond.wait();
 		}
-		console.log("woken up #" + index);
+		//console.log("woken up #" + index);
 		if (this.get__parties() <= 0)
 		    index = -1;
 		lock.unlock();

@@ -15,7 +15,9 @@ const numSlices = 100;
 const SS = SharedStruct;
 const Coord = SS.Type({queue:SS.ref,          // SharedInt32Array: representing the low y coordinate in the slice
 		       qnext:SS.atomic_int32, // Next element to pick up in the queue
-		       barrier:SS.ref,        // CyclicBarrier
+		       use_barrier:SS.int32,  // Flag
+		       barrier:SS.ref,        // CyclicBarrier - use this if use_barrier
+		       idle:SS.atomic_int32,  // Use this (for polling) if !use_barrier
 		       mem:SS.ref});          // SharedArray.int32(height*width)
 
 function perform(coord, who) {
@@ -52,5 +54,6 @@ function perform(coord, who) {
 	}
 	items++;
     }
-    console.log(who + " finished " + items + " items for " + sumit + " iterations: " + slices);
+    if (!coord.get_use_barrier())
+	console.log(who + " finished " + items + " items for " + sumit + " iterations: " + slices);
 }

@@ -8,5 +8,8 @@ onmessage =
 	SharedHeap.setup(ev.data, "slave");
 	var coord = sharedVar0.get(Coord);
 	perform(coord, "slave");
-	coord.get_barrier(CyclicBarrier).await();
+	if (coord.get_use_barrier())
+	    coord.get_barrier(CyclicBarrier).await();
+	else
+	    coord.add_idle(1);
     }
