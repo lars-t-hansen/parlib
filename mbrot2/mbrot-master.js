@@ -1,9 +1,9 @@
-// To do:
-//  - Figure out why the spinlock does not work well
-//  - Worry about worker priority in RuntimeServices.cpp
+// Here we want to multiplex: the slaves compute new arrays of frames
+// into a queue, and the master visualizes those frames as they become
+// available.  For this we want a bounded queue of some sort.  The
+// master should / could clamp its max animation speed.
 
-const workOnMain = false;
-const numWorkers = 3 + (workOnMain ? 0 : 1);
+const numWorkers = 4;
 
 var workers = [];
 for ( var i=0 ; i < numWorkers ; i++ ) {
@@ -13,8 +13,7 @@ for ( var i=0 ; i < numWorkers ; i++ ) {
 	function (ev) {
 	    if (ev.data == "done") {
 		console.log("DONE");
-		if (!workOnMain)
-		    displayIt();
+		displayIt();
 	    }
 	    else
 		console.log("MESSAGE: " + ev.data);
@@ -26,8 +25,8 @@ SharedHeap.setup(sab, "master");
 
 const queue = new SharedArray.int32(numSlices);
 const mem = new SharedArray.int32(height*width);
-const barrier = (new CyclicBarrier).init(numWorkers + (workOnMain ? 1 : 0));
-const coord = new Coord({queue: queue, use_barrier: 1, mem: mem, barrier: barrier});
+const barrier = (new CyclicBarrier).init(numWorkers);
+const coord = new Coord({queue: queue, mem: mem, barrier: barrier});
 
 for ( var i=0 ; i < numSlices ; i++ )
     queue[i] = i*Math.floor(height/numSlices);
@@ -36,44 +35,6 @@ sharedVar0.put(coord);
 
 for ( var w of workers )
     w.postMessage(sab, [sab]);
-
-if (workOnMain) {
-    setTimeout(function () { 
-	perform(coord, "master");
-	waitForIt();
-    }, 750);			// The 750 is to give the slaves a chance to do something
-}
-
-var startWait;
-
-function waitForIt() {
-    if (!startWait)
-	startWait = new Date();
-
-    if (coord.get_use_barrier())
-	coord.get_barrier(CyclicBarrier).await();
-
-    // The obvious spinlock does not work well.  Why is that?  On x86 this will just be
-    // a regular load.  We depend on the load going to the memory system.
-    // The write uses a LOCK CMPXCHG which should be enough.
-    // I suppose it could be that somebody needs the spinning core for finishing work,
-    // but it's not obvious.
-
-    // Nor does a CAS spinlock work any better than one that simply loads:
-    //while (coord.compareExchange_idle(3,0) != 3)
-    //    ;
-
-    if (!coord.get_use_barrier()) {
-	if (coord.get_idle() < numWorkers) {
-	    setTimeout(waitForIt, 10);
-	    return;
-	}
-    }
-
-    endWait = new Date();
-    console.log(endWait - startWait);
-    displayIt();
-}
 
 function displayIt() {
     var canvas = document.getElementById("mycanvas");

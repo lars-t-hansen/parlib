@@ -12,11 +12,7 @@ onmessage =
 	show("Slave online");
 	var coord = sharedVar0.get(Coord);
 	perform(coord, "slave");
-	if (coord.get_use_barrier()) {
-	    if (coord.get_barrier(CyclicBarrier).await() == 0)
-		postMessage("done");
-	}
-	else
-	    coord.add_idle(1);
+	if (coord.get_barrier(CyclicBarrier).await() == 0)
+	    postMessage("done");
 	show("Slave quiescent");
     }
