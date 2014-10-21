@@ -1,5 +1,5 @@
 importScripts("../src/parlib.js");
-importScripts("../src/CyclicBarrier.js");
+importScripts("../src/util.js");
 importScripts("mbrot-common.js");
 
 function show(m) {
