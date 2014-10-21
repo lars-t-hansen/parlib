@@ -1,7 +1,3 @@
-// Misc improvements here:
-//  - Use a Barrier for the synchronization, maybe, or just do the
-//    computation on workers and let the main thread do something else.
-//
 // To do:
 //  - Figure out why the spinlock does not work well
 //  - Worry about worker priority in RuntimeServices.cpp
