@@ -1,5 +1,5 @@
 importScripts("../src/parlib.js");
-importScripts("../src/util.js");
+importScripts("../src/BoundedBuffer.js");
 importScripts("mbrot-common.js");
 
 function show(m) {
@@ -8,19 +8,8 @@ function show(m) {
 
 onmessage =
     function (ev) {
-	var d = ev.data;
-	if (d[0] == "setup") {
-	    SharedHeap.setup(d[1], "slave");
-	    show("Slave online");
-	    return;
-	}
-	if (d[0] == "do") {
-	    var coord = sharedVar0.get(Coord);
-	    var bEnd = coord.get_endBarrier(CyclicBarrier);
-	    perform(coord, "slave");
-	    if (bEnd.await() == 0)
-		postMessage("done");
-	    //show("Slave quiescent");
-	    return;
-	}
+	SharedHeap.setup(ev.data, "slave");
+	show("Slave online");
+	perform(sharedVar0.get(BoundedBuffer.ref), function () { postMessage("done"); });
+	show("Slave quiescent");
     };
