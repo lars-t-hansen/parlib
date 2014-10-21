@@ -31,6 +31,9 @@ To initialize the shared heap, do this:
 Objects can now be allocated in the shared heap and communicated among
 all the workers, as described in the following.
 
+SharedHeap.pid is a process ID that is unique to the worker.  The
+master worker always has pid=0.
+
 
 Shared variable objects
 -----------------------

@@ -54,6 +54,5 @@ function perform(coord, who) {
 	}
 	items++;
     }
-    if (!coord.get_use_barrier())
-	console.log(who + " finished " + items + " items for " + sumit + " iterations: " + slices);
+    show(who + " finished " + items + " items for " + sumit + " iterations: " + slices);
 }

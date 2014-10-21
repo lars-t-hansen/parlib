@@ -112,7 +112,7 @@
  *   0: unused, the "null ref" points here
  *   1: iab next-free pointer (variable, update with CAS)
  *   2: iab limit pointer (constant, pointer past the end)
- *   3: padding
+ *   3: next process ID
  *   4: sharedVar0: starts here
  *   5: ...
  *   
@@ -196,7 +196,7 @@ var _sab;                       // SharedArrayBuffer used for the heap
 var _iab;                       // SharedInt32Array covering the _sab
 var _dab;                       // SharedFloat64Array covering the _sab
 
-const SharedHeap = {};
+const SharedHeap = { pid: -1 };	// The pid is altered by SharedHeap.setup().
 
 var sharedVar0;
 
@@ -230,15 +230,17 @@ SharedHeap.setup =
         _dab = new SharedFloat64Array(sab);
         switch (whoami) {
         case "master":
+	    SharedHeap.pid = 0;
             _iab[0] = 0;
             _iab[1] = 4;            // Initial allocation pointer
             _iab[2] = _iab.length;
-            _iab[3] = 0;
+            _iab[3] = 1;
             sharedVar0 = new SharedVar.ref();
             if (sharedVar0._base != _sharedVar_loc)
                 throw new Error("Internal error: bad SharedVar location");
             break;
         case "slave":
+	    SharedHeap.pid = Atomics.add(_iab, 3, 1);
             sharedVar0 = SharedVar.ref.fromRef(_sharedVar_loc);
             break;
         default:
@@ -710,8 +712,9 @@ var Lock =
 		var c = 0;
 		if ((c = Atomics.compareExchange(iab, index, 0, 1)) != 0) {
 		    do {
-			if (c == 2 || Atomics.compareExchange(iab, index, 1, 2) != 0)
+			if (c == 2 || Atomics.compareExchange(iab, index, 1, 2) != 0) {
 			    Atomics.futexWait(iab, index, 2, Number.POSITIVE_INFINITY);
+			}
 		    } while ((c = Atomics.compareExchange(iab, index, 0, 2)) != 0);
 		}
 	    };
@@ -745,8 +748,8 @@ var Lock =
 //
 // Condition variables.
 //
-// new Cond({lock:v}) creates a condition variable that can wait on
-// the lock 'v'.
+// new Cond({lock:l}) creates a condition variable that can wait on
+// the lock 'l'.
 //
 // cond.wait() atomically unlocks its lock (which must be held by the
 // calling thread) and waits for a wakeup on cond.  If there were waiters
@@ -759,7 +762,10 @@ var Lock =
 // re-acquire the locks they held as they waited; it needn't all be
 // the same locks.
 //
-// The condvar code is based on http://locklessinc.com/articles/mutex_cv_futex.
+// The caller of wake and wakeAll must hold the lock during the call.
+//
+// (The condvar code is based on http://locklessinc.com/articles/mutex_cv_futex,
+// though modified because some optimizations in that code don't quite apply.)
 
 var Cond =
     (function () {
@@ -776,9 +782,8 @@ var Cond =
 		const lock = this.get_lock(Lock);
 		const index = lock._base + $index;
 		lock.unlock();
-		Atomics.futexWait(_iab, loc, seq);
-		while (Atomics.store(_iab, index, 2) != 0)
-		    Atomics.futexWait(_iab, index, 2);
+		var r = Atomics.futexWait(_iab, loc, seq, Number.POSITIVE_INFINITY);
+		lock.lock();
 	    };
 
 	Cond.prototype.wake =
@@ -793,13 +798,9 @@ var Cond =
 		const loc = this._base + $seq;
 		const index = this.get_lock(Lock)._base + $index;
 		var seq = Atomics.add(_iab, loc, 1) + 1;
-		// Here it seems like the old supposedly "buggy" form of FUTEX_REQUEUE would be better.
-		// I'm not 100% sure the loop is necessary.  The intent is that a wake() that sneaks in
-		// should not prevent the rest of the waiters from being woken.  Since we don't
-		// unlock anything here it should be safe, the only ill effect might be that there
-		// will be a little contention.
-		while (Atomics.futexWakeOrRequeue(_iab, loc, 1, seq, index) == Atomics.NOTEQUAL)
-		    seq = Atomics.load(_iab, loc);
+		// Optimization opportunity: only wake one, and requeue the others
+		// (in such a way as to obey the locking protocol properly).
+		Atomics.futexWake(_iab, loc, 65535);
 	    };
 
 	return Cond;

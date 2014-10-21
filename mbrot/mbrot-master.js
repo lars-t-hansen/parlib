@@ -6,18 +6,31 @@
 //  - Figure out why the spinlock does not work well
 //  - Worry about worker priority in RuntimeServices.cpp
 
-const numWorkers = 3;
+const workOnMain = false;
+const numWorkers = 3 + (workOnMain ? 0 : 1);
 
 var workers = [];
-for ( var i=0 ; i < numWorkers ; i++ )
-    workers.push(new Worker("mbrot-slave.js"));
+for ( var i=0 ; i < numWorkers ; i++ ) {
+    var w;
+    workers.push(w = new Worker("mbrot-slave.js"));
+    w.onmessage =
+	function (ev) {
+	    if (ev.data == "done") {
+		console.log("DONE");
+		if (!workOnMain)
+		    displayIt();
+	    }
+	    else
+		console.log("MESSAGE: " + ev.data);
+	}
+}
 
 const sab = SharedHeap.allocate(height*width*4 + 32768);
 SharedHeap.setup(sab, "master");
 
 const queue = new SharedArray.int32(numSlices);
 const mem = new SharedArray.int32(height*width);
-const barrier = (new CyclicBarrier).init(numWorkers+1);
+const barrier = (new CyclicBarrier).init(numWorkers + (workOnMain ? 1 : 0));
 const coord = new Coord({queue: queue, use_barrier: 1, mem: mem, barrier: barrier});
 
 for ( var i=0 ; i < numSlices ; i++ )
@@ -28,10 +41,12 @@ sharedVar0.put(coord);
 for ( var w of workers )
     w.postMessage(sab, [sab]);
 
-setTimeout(function () { 
-    perform(coord, "master");
-    waitForIt();
-}, 750);			// The 750 is to give the slaves a chance to do something
+if (workOnMain) {
+    setTimeout(function () { 
+	perform(coord, "master");
+	waitForIt();
+    }, 750);			// The 750 is to give the slaves a chance to do something
+}
 
 var startWait;
 
@@ -83,4 +98,8 @@ function displayIt() {
     }
 
     console.log("done ");
+}
+
+function show(m) {
+    console.log(SharedHeap.pid + ": " + m);
 }
