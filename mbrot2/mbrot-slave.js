@@ -8,11 +8,19 @@ function show(m) {
 
 onmessage =
     function (ev) {
-	SharedHeap.setup(ev.data, "slave");
-	show("Slave online");
-	var coord = sharedVar0.get(Coord);
-	perform(coord, "slave");
-	if (coord.get_barrier(CyclicBarrier).await() == 0)
-	    postMessage("done");
-	show("Slave quiescent");
-    }
+	var d = ev.data;
+	if (d[0] == "setup") {
+	    SharedHeap.setup(d[1], "slave");
+	    show("Slave online");
+	    return;
+	}
+	if (d[0] == "do") {
+	    var coord = sharedVar0.get(Coord);
+	    var bEnd = coord.get_endBarrier(CyclicBarrier);
+	    perform(coord, "slave");
+	    if (bEnd.await() == 0)
+		postMessage("done");
+	    //show("Slave quiescent");
+	    return;
+	}
+    };

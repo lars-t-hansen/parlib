@@ -1,24 +1,29 @@
 // Parallel mandelbrot: Common code.
 // Include this first in both master and slaves.
 
-const g_left = -2.5;
-const g_right = 1.0;
-const g_top = 1.0;
-const g_bottom = -1.0;
+const g_center_x = -0.743643887037158704752191506114774;
+const g_center_y = 0.131825904205311970493132056385139;
 
 // Pixel grid.  (0,0) correspons to (bottom,left)
-const height = Math.floor((g_top-g_bottom)*512);
-const width = Math.floor((g_right-g_left)*512);
+const height = 480; // Math.floor((g_top-g_bottom)*256);
+const width = 640; // Math.floor((g_right-g_left)*256);
 
 const numSlices = 100;
 
 const SS = SharedStruct;
 const Coord = SS.Type({queue:SS.ref,          // SharedInt32Array: representing the low y coordinate in the slice
 		       qnext:SS.atomic_int32, // Next element to pick up in the queue
-		       barrier:SS.ref,        // CyclicBarrier
+		       endBarrier:SS.ref,        // CyclicBarrier
+		       magnification:SS.int32,
+		       flag:SS.int32,	      // Set to 1 when we want to exit
 		       mem:SS.ref});          // SharedArray.int32(height*width)
 
 function perform(coord, who) {
+    const g_magnification = coord.get_magnification();
+    const g_top = g_center_y + 1/g_magnification;
+    const g_bottom = g_center_y - 1/g_magnification;
+    const g_left = g_center_x - width/height*1/g_magnification;
+    const g_right = g_center_x + width/height*1/g_magnification;
     const mem = coord.get_mem(SharedArray.int32);
     const queue = coord.get_queue(SharedArray.int32);
     var items = 0;
@@ -28,9 +33,9 @@ function perform(coord, who) {
 	var v = coord.add_qnext(1);
 	if (v >= queue.length)
 	    break;
-	slices += v + " ";
+	//slices += v + " ";
 	var ybottom = queue[v];
-	var ytop = Math.min(height, Math.ceil(ybottom + (height / numSlices)));
+	var ytop = Math.min(height, Math.floor(ybottom + (height / numSlices)));
 	var MAXIT = 1000;
 	for ( var Py=ybottom ; Py < ytop ; Py++ ) {
 	    for ( var Px=0 ; Px < width ; Px++ ) {
@@ -52,5 +57,5 @@ function perform(coord, who) {
 	}
 	items++;
     }
-    show(who + " finished " + items + " items for " + sumit + " iterations: " + slices);
+    //show(who + " finished " + items + " items for " + sumit + " iterations: " + slices);
 }

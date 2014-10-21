@@ -1,9 +1,8 @@
-// Here we want to multiplex: the slaves compute new arrays of frames
-// into a queue, and the master visualizes those frames as they become
-// available.  For this we want a bounded queue of some sort.  The
-// master should / could clamp its max animation speed.
+// On my MBP I get:
+//   2.9 fps (41s) with 1 worker
+//   13.3 fps (9s) with 8 workers
 
-const numWorkers = 4;
+const numWorkers = 8;
 
 var workers = [];
 for ( var i=0 ; i < numWorkers ; i++ ) {
@@ -12,7 +11,7 @@ for ( var i=0 ; i < numWorkers ; i++ ) {
     w.onmessage =
 	function (ev) {
 	    if (ev.data == "done") {
-		console.log("DONE");
+		//console.log("DONE");
 		displayIt();
 	    }
 	    else
@@ -25,8 +24,13 @@ SharedHeap.setup(sab, "master");
 
 const queue = new SharedArray.int32(numSlices);
 const mem = new SharedArray.int32(height*width);
-const barrier = (new CyclicBarrier).init(numWorkers);
-const coord = new Coord({queue: queue, mem: mem, barrier: barrier});
+const endBarrier = (new CyclicBarrier).init(numWorkers);
+const coord = new Coord({queue:queue,
+			 qnext:0,
+			 magnification:1,
+			 flag:1,
+			 mem:mem,
+			 endBarrier:endBarrier});
 
 for ( var i=0 ; i < numSlices ; i++ )
     queue[i] = i*Math.floor(height/numSlices);
@@ -34,27 +38,46 @@ for ( var i=0 ; i < numSlices ; i++ )
 sharedVar0.put(coord);
 
 for ( var w of workers )
-    w.postMessage(sab, [sab]);
+    w.postMessage(["setup", sab], [sab]);
+
+var iterations = 0;
+var maxit = 120;
+var mag = 1;
+setTimeout(runIt, 0);
+
+function runIt() {
+    if (++iterations > maxit) {
+	var secs = Math.round(new Date() - firstFrame)/1000;
+	show("Time = " + secs + "; " + maxit/secs + " fps avg");
+	return;
+    }
+    coord.set_magnification(mag);
+    coord.set_qnext(0);
+    mag *= 1.1;
+    for ( var w of workers )
+	w.postMessage(["do"]);
+}
+    
+var first = true;
+var firstFrame;
+var mycanvas;
+var cx;
+var id;
+var tmp;
 
 function displayIt() {
-    var canvas = document.getElementById("mycanvas");
-    canvas.width = width;
-    canvas.height = height;
-    
-    var cx = canvas.getContext('2d');
-
-    var X = 500;
-    var W = 1000;
-    var id  = cx.createImageData(W,1);
-    for ( var y=200 ; y < 800 ; y++ ) {
-	// This is gross because it knows too much about internals.  It seems clear
-	// that we'd want to abstract / hide it somehow.
-	var tmp = new SharedUint8Array(sab, mem._base + y*width*4 + X*4, W*4);
-	id.data.set(tmp);
-	cx.putImageData( id, X, y );
+    if (first) {
+	first = false;
+	firstFrame = new Date();
+	mycanvas = document.getElementById("mycanvas");
+	cx = mycanvas.getContext('2d');
+	id  = cx.createImageData(width, height);
+	tmp = new SharedUint8Array(sab, mem.bytePtr(), height*width*4); 
     }
+    id.data.set(tmp);
+    cx.putImageData( id, 0, 0 );
 
-    console.log("done ");
+    setTimeout(runIt, 0);
 }
 
 function show(m) {

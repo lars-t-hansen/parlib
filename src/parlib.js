@@ -312,7 +312,7 @@ SharedHeap.allocArray =
 
 // TODO: hide this
 
-function SharedArrayConstructor(d, constructor) {
+function SharedArrayConstructor(d, constructor, isRefArray) {
     return function (_a1, _a2, _a3) {
         var p;
         var nelements;
@@ -328,6 +328,10 @@ function SharedArrayConstructor(d, constructor) {
         }
         var a = new constructor(_sab, 8+(p*4), nelements);
         a._base = p;
+	// This is gross, but as a SharedArray.ref is currently just
+	// a SharedInt32Array, we don't want to place this method on the prototype.
+	if (isRefArray)
+	    a.get = function (c) { return c.fromRef(this._base); }
         return a;
     };
 }
@@ -342,17 +346,20 @@ SharedArray.int32.fromRef =
 	if (r == 0) return null;
         return new SharedArray.int32(_noalloc, r, _iab[r+1]/4);
     }
-
-/* Not sure if this is a good idea yet, working on a spec.
+SharedInt32Array.prototype.bytePtr =
+    function () {
+	return this._base*4 + 8;
+    };
 
 SharedArray.ref =
-    SharedArrayConstructor(_array_ref, SharedInt32Array);
-SharedArray.ref._desc = _array_ref;
+    SharedArrayConstructor(_array_ref_desc, SharedInt32Array, true);
+SharedArray.ref._desc = _array_ref_desc;
 SharedArray.ref.fromRef =
     function (r) {
-        return new SharedArray.int32(_noalloc, r, _iab[r+1]);
+	if (r == 0) return null;
+        return new SharedArray.ref(_noalloc, r, _iab[r+1]/4);
     }
-*/
+// bytePtr is inherited from SharedArray.int32
 
 SharedArray.float64 =
     SharedArrayConstructor(_array_float64_desc, SharedFloat64Array);
@@ -362,6 +369,10 @@ SharedArray.float64.fromRef =
 	if (r == 0) return null;
         return new SharedArray.float64(_noalloc, r, _iab[r+1]/8);
     }
+SharedFloat64Array.prototype.bytePtr =
+    function () {
+	return this._base*4 + 8; // *4 even for double arrays
+    };
 
 //////////////////////////////////////////////////////////////////////
 //
