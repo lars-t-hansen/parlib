@@ -3,24 +3,24 @@
  * conveniently.
  *
  * DRAFT.
- * 17 October 2014 / lhansen@mozilla.com.
+ * 21 October 2014 / lhansen@mozilla.com.
  *
  * For documentation and examples see parlib.txt.
  */
 
 /*
  * TODO:
+ *  - Getters and setters instead of set_ and get_ functions.
+ *
  *  - Structural equivalence for type reconstruction is really not
  *    a great idea, even if it's safe.  We may want to introduce
  *    some notion of a brand, at a minimum.
  *
  *  - Storage management.
  *
- *  - Condition variables.
- *
  *  - More atomic operations (sub on int/float; and, or, xor on int)
  *
- *  - "Work pool" data structure, maybe.
+ *  - Locks and condition vars can probably be faster.
  */
 
 /* Implementation details.
@@ -796,8 +796,7 @@ var Cond =
 	Cond.prototype.wakeAll =
 	    function () {
 		const loc = this._base + $seq;
-		const index = this.get_lock(Lock)._base + $index;
-		var seq = Atomics.add(_iab, loc, 1) + 1;
+		Atomics.add(_iab, loc, 1);
 		// Optimization opportunity: only wake one, and requeue the others
 		// (in such a way as to obey the locking protocol properly).
 		Atomics.futexWake(_iab, loc, 65535);
