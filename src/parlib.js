@@ -437,6 +437,33 @@ function SharedObjectFromReffer(constructor) {
     };
 }
 
+function Polymorph() {
+    this._values = {};
+    this._next = 1;		// 0 is never a valid tag
+};
+
+Polymorph.prototype.add =
+    function (x) {
+	if (x.hasOwnProperty("tag"))
+	    throw new Error("Already-used type for Polymorph: " + x);
+	x.tag = this._next++;
+	this._values[x.tag] = x;
+    };
+
+// TODO: for a polymorph we should pass in the tag value, and the
+// getter that calls us could ascertain that the structure has
+// a tag field.  The tag field need not be the first, but here we
+// assume it is.
+
+Polymorph.prototype.resolve =
+    function (pointer) {
+	var tag = _iab[pointer+1];
+	var c = this._values[tag];
+	if (!c)
+	    throw new Error("Unresolved polymorph");
+	return c;
+    };
+
 SharedStruct.Type =
     function(fields, tag) {
         var lockloc = 0;
@@ -572,7 +599,9 @@ SharedStruct.Type =
 		var a = true;
                 if (i.charAt(0) != '$') {
                     acc.push([i, 
-                              `function(c) { return c.fromRef(_iab[this._base + ${loc}]) }`,
+                              `function(c) {
+				  const p = _iab[this._base + ${loc}];
+				  return (c instanceof Polymorph) ? c.resolve(p).fromRef(p) : c.fromRef(p); }`,
                               `function(v) { return _iab[this._base + ${loc}] = (v ? v._base : 0); }`]);
 		    if (i.charAt(0) != '_') {
 			init.push(`var tmp = _v.${i}; _iab[this._base + ${loc}] = (tmp ? tmp._base : 0)`); // undefined => nan => 0

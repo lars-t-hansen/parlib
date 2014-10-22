@@ -3,8 +3,7 @@ parlib
 
 Shared object heap on top of SharedArrayBuffer / SharedTypedArray.
 
-src/ contains the core library sources, utilities, and some
-documentation.
+src/ contains the core library sources, utilities, and documentation.
 
 mbrot/ is a simple one-shot mandelbrot program demonstrating the
 library use.
@@ -16,6 +15,8 @@ mbrot3/ is an animated (iterated) mandelbrot, zooming in on a point,
 with computation and display overlapping via the use of multiple
 buffers and work queues.
 
-ray/ is a sequential ray-tracer.
+ray/ is a sequential ray tracer.
 
-ray2/ is a parallel ray-tracer derived from the code in ray/.
+ray2/ is a parallel ray tracer derived from the code in ray/.  Each
+worker has a private copy of the scene graph.
+
