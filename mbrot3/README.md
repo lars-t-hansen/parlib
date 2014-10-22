@@ -1,4 +1,5 @@
-Animated mandelbrot, with overlapping display and computation.
+Iterated parallel mandelbrot set computation, with overlapping display
+and computation.
 
 The master has a (short) array of pending frames.  It is always
 waiting for the first frame to become available, though in principle
