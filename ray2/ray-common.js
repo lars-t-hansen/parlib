@@ -364,18 +364,17 @@ function raycolor(eye, ray, t0, t1, depth) {
 }
 
 function raytrace(coord, reportDone) {
-    bits = new Bitmap(coord.get_mem(SharedArray.int32), height, width);
+    bits = new Bitmap(coord.mem, height, width);
     setStage();
-    var queue = coord.get_queue(BoundedBuffer.ref);
+    var queue = coord.queue;
     for (;;) {
-        var v = queue.get(Task);
-        if (v.get_height() == 0)
+        var v = queue.get();
+        if (v.height == 0)
             break;
-	var b = v.get_bottom();
-	var t = b + v.get_height();
-	//show("trace: " + b + " " + t);
+	var b = v.bottom;
+	var t = b + v.height;
         trace(b, t);
     }
-    if (coord.get_count(SharedVar.int32).add(-1) == 1)
+    if (coord.count.add(-1) == 1)
         reportDone();
 }

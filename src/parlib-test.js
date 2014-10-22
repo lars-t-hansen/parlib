@@ -12,6 +12,12 @@ testIntArray();
 testFloatArray();
 testAdd();
 
+var T = SharedStruct.Type({i:SharedStruct.int32,
+			   f:SharedStruct.float64,
+			   r:SharedStruct.ref});
+
+testTypes();
+
 function testLock() {
     print("testLock");
     var l = new Lock();
@@ -55,7 +61,7 @@ function testRefSharedVar() {
     assertEq(SharedHeap.equals(x,y), true);
     var l = new Lock();
     x.put(l);
-    var q = y.get(Lock);
+    var q = y.get();
     assertEq(SharedHeap.equals(l, q), true);
 }
 
@@ -101,7 +107,21 @@ function testAdd() {
     print("testAdd");
     var T = new SharedStruct.Type({x: SharedStruct.atomic_int32});
     var q = new T({x:1});
-    assertEq(q.get_x(), 1);
+    assertEq(q.x, 1);
     q.add_x(1);
-    assertEq(q.get_x(), 2);
+    assertEq(q.x, 2);
+}
+
+function testTypes() {
+    print("testTypes");
+    var a = new SharedArray.int32(1);
+    var obj = new T({i:10, f:3.14, r:a});
+    assertEq(obj.i, 10);
+    obj.i = 20;
+    assertEq(obj.i, 20);
+    assertEq(obj.f, 3.14);
+    obj.f *= 2;
+    assertEq(obj.f, 6.28);
+    assertEq(obj.r != null, true);
+    assertEq(SharedHeap.equals(a, obj.r), true);
 }

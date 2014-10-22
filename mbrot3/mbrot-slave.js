@@ -10,6 +10,6 @@ onmessage =
     function (ev) {
 	SharedHeap.setup(ev.data, "slave");
 	show("Slave online");
-	perform(sharedVar0.get(BoundedBuffer.ref), function () { postMessage("done"); });
+	perform(sharedVar0.get(), function () { postMessage("done"); });
 	show("Slave quiescent");
     };

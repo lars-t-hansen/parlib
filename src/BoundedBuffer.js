@@ -12,10 +12,7 @@
 //
 // To remove an element:
 //
-//  v = b.get(constructor)
-//
-// DESIGN NOTE: It would be possible to pass the constructor to init()
-// instead.
+//  v = b.get()
 
 const BoundedBuffer = {};
 
@@ -43,27 +40,27 @@ BoundedBuffer.ref =
 	BoundedBuffer.prototype.init =
 	    function (nelems) {
 		var l = new Lock;
-		this.set__items(new SharedArray.ref(nelems+1));
-		this.set__lock(l);
-		this.set__cond(new Cond({lock:l}));
+		this._items = new SharedArray.ref(nelems+1);
+		this._lock = l;
+		this._cond = new Cond({lock:l});
 		return this;
 	    };
 
 	BoundedBuffer.prototype.get =
-	    function (constructor) {
-		var l = this.get__lock(Lock);
-		var c = this.get__cond(Cond);
-		var xs = this.get__items(SharedArray.ref);
+	    function () {
+		var l = this._lock;
+		var c = this._cond;
+		var xs = this._items;
 		l.lock();
-		while (this.get__head() == this.get__tail()) {
-		    this.set__waiters(this.get__waiters()+1);
+		while (this._head == this._tail) {
+		    this._waiters++;
 		    c.wait();
-		    this.set__waiters(this.get__waiters()-1);
+		    this._waiters--;
 		}
-		var h = this.get__head();
-		var x = xs.get(constructor, h);
-		this.set__head((h + 1) % xs.length)
-		if (this.get__waiters())
+		var h = this._head;
+		var x = xs.get(h);
+		this._head = (h + 1) % xs.length;
+		if (this._waiters)
 		    c.wake();
 		l.unlock();
 		return x;
@@ -71,19 +68,19 @@ BoundedBuffer.ref =
 
 	BoundedBuffer.prototype.put =
 	    function (v) {
-		var l = this.get__lock(Lock);
-		var c = this.get__cond(Cond);
-		var xs = this.get__items(SharedArray.ref);
+		var l = this._lock;
+		var c = this._cond;
+		var xs = this._items;
 		l.lock();
-		while ((this.get__tail() + 1) % xs.length == this.get__head()) {
-		    this.set__waiters(this.get__waiters()+1);
+		while ((this._tail + 1) % xs.length == this._head) {
+		    this._waiters++;
 		    c.wait();
-		    this.set__waiters(this.get__waiters()-1);
+		    this._waiters--;
 		}
-		var t = this.get__tail();
+		var t = this._tail;
 		xs.put(t, v);
-		this.set__tail((t + 1) % xs.length);
-		if (this.get__waiters())
+		this._tail = (t + 1) % xs.length;
+		if (this._waiters)
 		    c.wake();
 		l.unlock();
 	    };

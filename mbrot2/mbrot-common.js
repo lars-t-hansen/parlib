@@ -19,13 +19,13 @@ const Coord = SS.Type({queue:SS.ref,          // SharedInt32Array: representing 
 		       mem:SS.ref});          // SharedArray.int32(height*width)
 
 function perform(coord, who) {
-    const g_magnification = coord.get_magnification();
+    const g_magnification = coord.magnification;
     const g_top = g_center_y + 1/g_magnification;
     const g_bottom = g_center_y - 1/g_magnification;
     const g_left = g_center_x - width/height*1/g_magnification;
     const g_right = g_center_x + width/height*1/g_magnification;
-    const mem = coord.get_mem(SharedArray.int32);
-    const queue = coord.get_queue(SharedArray.int32);
+    const mem = coord.mem;
+    const queue = coord.queue;
     var items = 0;
     var sumit = 0;
     var slices = "";

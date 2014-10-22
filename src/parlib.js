@@ -10,8 +10,6 @@
 
 /*
  * TODO:
- *  - Getters and setters instead of set_ and get_ functions.
- *
  *  - Structural equivalence for type reconstruction is really not
  *    a great idea, even if it's safe.  We may want to introduce
  *    some notion of a brand, at a minimum.
@@ -57,12 +55,14 @@
  * of the heap memory ("_iab" in the following).  The low bit of
  * an object address is zero.
  *
- * The first word of an object is a descriptor with the following
- * fields:
+ * The first two words of an object are a descriptor with the
+ * following fields:
  *
  *   +-+---+------------------------+----+
  *   |0| B | F                      | C  |
- *   +-+---+------------------------+----+
+ *   +-+---+----------+-------------+----+
+ *   |       U        |        D         |
+ *   +----------------+------------------+
  *
  * 0 is always zero (making the descriptor a nonnegative int32 value)
  *
@@ -70,6 +70,12 @@
  *   000  plain-ish object
  *   001  array
  *   xxx  others unallocated
+ *
+ * D is an index in the type descriptor table _typetable, where there
+ * will be a constructor with a fromRef method that converts a raw
+ * pointer back to an object.
+ *
+ * U is unused.
  *
  * If B=000 then the value is a "structure" type:
  *
@@ -96,8 +102,8 @@
  *   F must contain a single two-bit field signifying the type value,
  *   as above.
  *
- *   The word after the header contains the byte count of the array
- *   payload.
+ *   The word after the two-word header contains the byte count of the
+ *   array payload.
  *
  *   The payload begins on the word after that (8-byte aligned), and
  *   the SharedTArray's bufferOffset will reflect that.
@@ -203,6 +209,14 @@ var _sab;                       // SharedArrayBuffer used for the heap
 var _iab;                       // SharedInt32Array covering the _sab
 var _dab;                       // SharedFloat64Array covering the _sab
 
+const _typetable = {};		// Local map from integer to constructor
+var _typetag = 1;		// No type has tag 0
+
+_typetable[0] =			// Provide a sane handler for tag 0
+    function () {
+	throw new Error("Type tag 0 was looked up: not right");
+    };
+
 const SharedHeap = { pid: -1 };	// The pid is altered by SharedHeap.setup().
 
 var sharedVar0;
@@ -279,36 +293,38 @@ SharedHeap.allocStorage =
     };
 
 SharedHeap.alloc =
-    function (d, obj) {
+    function (d, tag, obj) {
         // TODO: storage management / GC support.
-        var nwords = (1+(d&15)+1) & ~1;
+        var nwords = (2+(d&15)+1) & ~1;
         var v = SharedHeap.allocStorage(nwords);
         var iab = _iab;
         obj._base = v;
         iab[v] = d;
+	iab[v+1] = tag;
         return v;
     };
 
 SharedHeap.allocArray =
-    function (n, d) {
+    function (n, tag, d) {
         // TODO: storage management / GC support.
-        var nwords = 2;
+        var nwords = 3;
         var nbytes;
         switch ((d >> 4) & 3) {
         case _i32:
         case _ref:
-            nwords += (n+1) & ~1;
+            nwords = (nwords+n+1) & ~1;
             nbytes = n*4;
             break;
         case _f64:
-            nwords += 2*n;
+            nwords += 1 + 2*n;
             nbytes = n*8;
             break;
         }
         var v = SharedHeap.allocStorage(nwords);
         var iab = _iab;
         iab[v] = d;
-        iab[v+1] = nbytes;
+	iab[v+1] = tag;
+        iab[v+2] = nbytes;
         return v;
     };
 
@@ -319,7 +335,7 @@ SharedHeap.allocArray =
 
 // TODO: hide this
 
-function SharedArrayConstructor(d, constructor, isRefArray) {
+function SharedArrayConstructor(d, constructor, typetag) {
     "use strict";
 
     return function (_a1, _a2, _a3) {
@@ -333,15 +349,18 @@ function SharedArrayConstructor(d, constructor, isRefArray) {
         }
         else {
             nelements = _a1;    // _a2 and _a3 are not supplied
-            p = SharedHeap.allocArray(nelements, d);
+            p = SharedHeap.allocArray(nelements, typetag, d);
         }
-        var a = new constructor(_sab, 8+(p*4), nelements);
+        var a = new constructor(_sab, (d == _array_float64_desc ? 16 : 12)+(p*4), nelements);
         a._base = p;
-	// This is gross, but as a SharedArray.ref is currently just
-	// a SharedInt32Array, we don't want to place this method on the prototype.
-	if (isRefArray) {
-	    a.get = function (c, x) { return c.fromRef(a[x]); }
-	    a.put = function (x, v) { a[x] = v ? v._base : 0; }
+	// A SharedArray.ref is currently just a SharedInt32Array, we don't want
+	// to place these methods on the prototype.
+	if (d == _array_ref_desc) {
+            a.get = function (index) {
+		var p = a[index];
+		return _typetable[_iab[p+1] & 65535].fromRef(p);
+	    };
+            a.put = function (x, v) { a[x] = v ? v._base : 0; };
 	}
         return a;
     };
@@ -349,41 +368,49 @@ function SharedArrayConstructor(d, constructor, isRefArray) {
 
 const SharedArray = {};
 
-SharedArray.int32 =
-    SharedArrayConstructor(_array_int32_desc, SharedInt32Array);
-SharedArray.int32._desc = _array_int32_desc;
-SharedArray.int32.fromRef =
-    function (r) {
-	if (r == 0) return null;
-        return new SharedArray.int32(_noalloc, r, _iab[r+1]/4);
-    }
-SharedInt32Array.prototype.bytePtr =
-    function () {
-	return this._base*4 + 8;
-    };
+(function () {
+    var itag = _typetag++;
+    SharedArray.int32 =
+	SharedArrayConstructor(_array_int32_desc, SharedInt32Array, itag);
+    _typetable[itag] = SharedArray.int32;
+    SharedArray.int32._desc = _array_int32_desc;
+    SharedArray.int32.fromRef =
+	function (r) {
+	    if (r == 0) return null;
+            return new SharedArray.int32(_noalloc, r, _iab[r+2]/4);
+	};
+    SharedInt32Array.prototype.bytePtr =
+	function () {
+	    return this._base*4 + 12;
+	};
 
-SharedArray.ref =
-    SharedArrayConstructor(_array_ref_desc, SharedInt32Array, true);
-SharedArray.ref._desc = _array_ref_desc;
-SharedArray.ref.fromRef =
-    function (r) {
-	if (r == 0) return null;
-        return new SharedArray.ref(_noalloc, r, _iab[r+1]/4);
-    }
-// bytePtr is inherited from SharedArray.int32
+    var rtag = _typetag++;
+    SharedArray.ref =
+	SharedArrayConstructor(_array_ref_desc, SharedInt32Array, rtag);
+    _typetable[rtag] = SharedArray.ref;
+    SharedArray.ref._desc = _array_ref_desc;
+    SharedArray.ref.fromRef =
+	function (r) {
+	    if (r == 0) return null;
+            return new SharedArray.ref(_noalloc, r, _iab[r+2]/4);
+	};
+    // bytePtr is inherited from SharedArray.int32
 
-SharedArray.float64 =
-    SharedArrayConstructor(_array_float64_desc, SharedFloat64Array);
-SharedArray.float64._desc = _array_float64_desc;
-SharedArray.float64.fromRef =
-    function (r) {
-	if (r == 0) return null;
-        return new SharedArray.float64(_noalloc, r, _iab[r+1]/8);
-    }
-SharedFloat64Array.prototype.bytePtr =
-    function () {
-	return this._base*4 + 8; // *4 even for double arrays
-    };
+    var ftag = _typetag++;
+    SharedArray.float64 =
+	SharedArrayConstructor(_array_float64_desc, SharedFloat64Array, ftag);
+    _typetable[ftag] = SharedArray.float64;
+    SharedArray.float64._desc = _array_float64_desc;
+    SharedArray.float64.fromRef =
+	function (r) {
+	    if (r == 0) return null;
+            return new SharedArray.float64(_noalloc, r, _iab[r+2]/8);
+	};
+    SharedFloat64Array.prototype.bytePtr =
+	function () {
+	    return this._base*4 + 16; // *4 even for double arrays, but also padding
+	};
+})();
 
 //////////////////////////////////////////////////////////////////////
 //
@@ -465,9 +492,9 @@ Polymorph.prototype.resolve =
     };
 
 SharedStruct.Type =
-    function(fields, tag) {
+    function(fields, tagname) {
         var lockloc = 0;
-        var loc = 1;
+        var loc = 2;		// Header followed by type tag
         var desc = 0;
         var acc = [];
 	var meth = [];
@@ -483,7 +510,7 @@ SharedStruct.Type =
                 throw new Error("Invalid field type");
             if (f === SharedStruct.atomic_float64 && !lockloc) {
                 lockloc = loc;
-                desc = desc | (_i32 << ((loc-1)*2));
+                desc = desc | (_i32 << ((loc-2)*2));
                 loc++;
                 ainit.push(`_iab[this._base + ${lockloc}] = 0`);
             }
@@ -505,7 +532,7 @@ SharedStruct.Type =
 		}
 		if (a)
                     ainit.push(`_iab[this._base + ${loc}] = 0`);
-                desc = desc | (_i32 << ((loc-1)*2));
+                desc = desc | (_i32 << ((loc-2)*2));
                 loc++;
             }
             else if (f === SharedStruct.atomic_int32) {
@@ -525,7 +552,7 @@ SharedStruct.Type =
 		}
 		else
                     ainit.push(`_iab[this._base + ${loc}] = 0`);
-                desc = desc | (_i32 << ((loc-1)*2));
+                desc = desc | (_i32 << ((loc-2)*2));
                 loc++;
             }
             else if (f === SharedStruct.float64) {
@@ -542,9 +569,9 @@ SharedStruct.Type =
 		}
 		if (a)
                     ainit.push(`_dab[(this._base + ${loc}) >> 1] = 0.0`);
-                desc = desc | (_f64 << ((loc-1)*2));
+                desc = desc | (_f64 << ((loc-2)*2));
                 loc++;
-                desc = desc | (_f64 << ((loc-1)*2));
+                desc = desc | (_f64 << ((loc-2)*2));
                 loc++;
             }
             else if (f === SharedStruct.atomic_float64) {
@@ -590,18 +617,24 @@ SharedStruct.Type =
 		}
 		else 
                     ainit.push(`_dab[(this._base + ${loc}) >> 1] = 0.0`);
-                desc = desc | (_f64 << ((loc-1)*2));
+                desc = desc | (_f64 << ((loc-2)*2));
                 loc++;
-                desc = desc | (_f64 << ((loc-1)*2));
+                desc = desc | (_f64 << ((loc-2)*2));
                 loc++;
             }
             else if (f === SharedStruct.ref) {
+		// For arrays we need no further information, the descriptor has all the information.
+		// For structures the first field after the header must be the index within the
+		// local type table of the appropriate constructor.
+		//
+		// On the other hand that means a longer path for type reconstruction since we must
+		// test the descriptor.
 		var a = true;
                 if (i.charAt(0) != '$') {
                     acc.push([i, 
-                              `function(c) {
+                              `function() {
 				  const p = _iab[this._base + ${loc}];
-				  return (c instanceof Polymorph) ? c.resolve(p).fromRef(p) : c.fromRef(p); }`,
+				  return _typetable[_iab[p+1] & 65535].fromRef(p); }`,
                               `function(v) { return _iab[this._base + ${loc}] = (v ? v._base : 0); }`]);
 		    if (i.charAt(0) != '_') {
 			init.push(`var tmp = _v.${i}; _iab[this._base + ${loc}] = (tmp ? tmp._base : 0)`); // undefined => nan => 0
@@ -611,14 +644,16 @@ SharedStruct.Type =
 		}
 		if (a)
                     ainit.push(`_iab[this._base + ${loc}] = 0`);
-                desc = desc | (_ref << ((loc-1)*2));
+                desc = desc | (_ref << ((loc-2)*2));
                 loc++;
             }
             else if (f === SharedStruct.atomic_ref) {
                 if (i.charAt(0) == '$')
 		    throw new Error("Private atomic fields are silly");
                 acc.push([i,
-                          `function(c) { return c.fromRef(Atomics.load(_iab, this._base + ${loc})) }`,
+                          `function() { 
+			      const p = Atomics.load(_iab, this._base + ${loc});
+			      return _typetable[_iab[p+1] & 65535].fromRef(p); }`,
                           `function(v) { return Atomics.store(_iab, this._base + ${loc}, (v ? v._base : 0)) }`]);
 		meth.push([`compareExchange_${i}`,
 			   `function(c,oldval,newval) {
@@ -632,15 +667,15 @@ SharedStruct.Type =
 		}
 		else
                     ainit.push(`_iab[this._base + ${loc}] = 0`);
-                desc = desc | (_ref << ((loc-1)*2));
+                desc = desc | (_ref << ((loc-2)*2));
                 loc++;
             }
             else
                 throw new Error("Invalid field type");
         }
-        if ((loc-1) > 12)
+        if ((loc-2) > 12)
             throw new Error("Too many fields");
-        desc = (desc << 4) | (loc-1);
+        desc = (desc << 4) | (loc-2);
 	var ainits = '';
 	for ( var i of ainit )
 	    ainits += i + ';\n';
@@ -652,10 +687,16 @@ SharedStruct.Type =
             zinits += i + ';\n';
         var accs = '';
         for ( var [i,g,s] of acc ) {
-            if (g)
-                accs += `p.get_${i} = ${g};\n`;
-            if (s) 
-                accs += `p.set_${i} = ${s};\n`;
+	    var t = '';
+	    if (g || s) {
+		t += `{${i}: {`;
+		if (g)
+		    t += `get: ${g},`;
+		if (s) 
+                    t += `set: ${s}`;
+		t += `}}`;
+		accs += `Object.defineProperties(p, ${t});\n`;
+	    }
         }
         var meths = '';
         for ( var [i,m] of meth )
@@ -672,27 +713,29 @@ SharedStruct.Type =
                 ${inits}
              }` :
 	"";
+	var typetag = _typetag++;
         var code =
             `(function () {
 		"use strict";
                 var c = function (_v) {
                     if (_v === _noalloc) return;
-                    SharedHeap.alloc(${desc}, this);
+                    SharedHeap.alloc(${desc}, ${typetag}, this);
 		    ${ainits}
 		    ${finits}
                 }
                 c._desc = ${desc};
                 c.fromRef = SharedObjectFromReffer(c);
                 ${cprops}
-                var p = new SharedObjectProto(\'${tag ? String(tag) : "(anonymous)"}\');
-                ${accs}
+                var p = new SharedObjectProto(\'${tagname ? String(tagname) : "(anonymous)"}\');
+		${accs}
 		${meths}
                 c.prototype = p;
                 return c;
             })();`;
-	//print(code);
 	// TODO: Is this eval() safe?  Note the code that is being run is strict.
-        return eval(code);
+        var c = eval(code);
+	_typetable[typetag] = c;
+	return c;
     };
 
 //////////////////////////////////////////////////////////////////////
@@ -707,8 +750,8 @@ var SharedVar = {};
 SharedVar.int32 = 
     (function () {
     	var T = SharedStruct.Type({_cell:SharedStruct.atomic_int32}, "SharedVar.int32");
-    	T.prototype.get = T.prototype.get__cell;
-    	T.prototype.put = T.prototype.set__cell;
+    	T.prototype.get = function () { return this._cell }
+    	T.prototype.put = function (v) { this._cell = v; }
     	T.prototype.add = T.prototype.add__cell;
     	T.prototype.compareExchange = T.prototype.compareExchange__cell;
     	return T;
@@ -717,8 +760,8 @@ SharedVar.int32 =
 SharedVar.float64 =
     (function () {
 	var T = SharedStruct.Type({_cell:SharedStruct.atomic_float64}, "SharedVar.float64");
-    	T.prototype.get = T.prototype.get__cell;
-    	T.prototype.put = T.prototype.set__cell;
+    	T.prototype.get = function () { return this._cell }
+    	T.prototype.put = function (v) { this._cell = v; }
     	T.prototype.add = T.prototype.add__cell;
   	T.prototype.compareExchange = T.prototype.compareExchange__cell;
       	return T;
@@ -727,8 +770,8 @@ SharedVar.float64 =
 SharedVar.ref =
     (function () {
     	var T = SharedStruct.Type({_cell:SharedStruct.atomic_ref}, "SharedVar.ref");
-    	T.prototype.get = T.prototype.get__cell;
-    	T.prototype.put = T.prototype.set__cell;
+    	T.prototype.get = function () { return this._cell }
+    	T.prototype.put = function (v) { this._cell = v; }
   	T.prototype.compareExchange = T.prototype.compareExchange__cell;
       	return T;
     })();
@@ -832,7 +875,7 @@ var Cond =
 	    function () {
 		const loc = this._base + $seq;
 		const seq = Atomics.load(_iab, loc);
-		const lock = this.get_lock(Lock);
+		const lock = this.lock;
 		const index = lock._base + $index;
 		lock.unlock();
 		var r = Atomics.futexWait(_iab, loc, seq, Number.POSITIVE_INFINITY);

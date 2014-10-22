@@ -51,8 +51,8 @@ function runIt() {
 	show("Time = " + secs + "; " + maxit/secs + " fps avg");
 	return;
     }
-    coord.set_magnification(mag);
-    coord.set_qnext(0);
+    coord.magnification = mag;
+    coord.qnext = 0;
     mag *= 1.1;
     for ( var w of workers )
 	w.postMessage(["do"]);

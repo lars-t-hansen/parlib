@@ -50,8 +50,8 @@ function waitForIt() {
     if (!startWait)
 	startWait = new Date();
 
-    if (coord.get_use_barrier())
-	coord.get_barrier(CyclicBarrier).await();
+    if (coord.use_barrier)
+	coord.barrier.await();
 
     // The obvious spinlock does not work well.  Why is that?  On x86 this will just be
     // a regular load.  We depend on the load going to the memory system.
@@ -63,8 +63,8 @@ function waitForIt() {
     //while (coord.compareExchange_idle(3,0) != 3)
     //    ;
 
-    if (!coord.get_use_barrier()) {
-	if (coord.get_idle() < numWorkers) {
+    if (!coord.use_barrier) {
+	if (coord.idle < numWorkers) {
 	    setTimeout(waitForIt, 10);
 	    return;
 	}

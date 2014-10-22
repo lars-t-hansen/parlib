@@ -10,10 +10,10 @@ onmessage =
     function (ev) {
 	SharedHeap.setup(ev.data, "slave");
 	show("Slave online");
-	var coord = sharedVar0.get(Coord);
+	var coord = sharedVar0.get();
 	perform(coord, "slave");
-	if (coord.get_use_barrier()) {
-	    if (coord.get_barrier(CyclicBarrier).await() == 0)
+	if (coord.use_barrier) {
+	    if (coord.barrier.await() == 0)
 		postMessage("done");
 	}
 	else

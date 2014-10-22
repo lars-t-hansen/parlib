@@ -15,10 +15,9 @@ onmessage =
 	    return;
 	}
 	if (d[0] == "do") {
-	    var coord = sharedVar0.get(Coord);
-	    var bEnd = coord.get_endBarrier(CyclicBarrier);
+	    var coord = sharedVar0.get();
 	    perform(coord, "slave");
-	    if (bEnd.await() == 0)
+	    if (coord.endBarrier.await() == 0)
 		postMessage("done");
 	    //show("Slave quiescent");
 	    return;

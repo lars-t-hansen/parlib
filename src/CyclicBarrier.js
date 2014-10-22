@@ -33,36 +33,36 @@ var CyclicBarrier =
 	CyclicBarrier.prototype.init =
 	    function (parties) {
 		var l = new Lock;
-		this.set__lock(l);
-		this.set__cond(new Cond({lock: l}));
-		this.set__seq(0);
-		this.set__parties(parties);
-		this.set__index(0);
+		this._lock = l;
+		this._cond = new Cond({lock: l});
+		this._seq = 0;
+		this._parties = parties;
+		this._index = 0;
 		return this;
 	    };
 
 	CyclicBarrier.prototype.await =
 	    function () {
-		const lock = this.get__lock(Lock);
-		const cond = this.get__cond(Cond);
+		const lock = this._lock;
+		const cond = this._cond;
 
 		lock.lock();
-		var index = this.get__index();
+		var index = this._index;
 
-		if (index+1 == this.get__parties()) {
-		    this.set__index(0);
+		if (index+1 == this._parties) {
+		    this._index = 0;
 		    this.add__seq(1)
 		    cond.wakeAll();
 		    lock.unlock();
 		    return index;
 		}
 
-		this.set__index(index+1);
-		var flag = this.get__seq();
+		this._index = index+1;
+		var flag = this._seq;
 		var it = 0;
-		while (flag == this.get__seq())
+		while (flag == this._seq)
 		    cond.wait();
-		if (this.get__parties() <= 0)
+		if (this._parties <= 0)
 		    index = -1;
 		lock.unlock();
 
@@ -71,11 +71,11 @@ var CyclicBarrier =
 
 	CyclicBarrier.prototype.resetAndInvalidate =
 	    function () {
-		this.get__lock(Lock).lock();
+		this._lock.lock();
 		this.add__seq(1);
-		this.set__parties(-1);
-		this.get__cond(Cond).wakeAll();
-		this.get__lock(Lock).unlock();
+		this._parties = -1;
+		this._cond.wakeAll();
+		this._lock.unlock();
 	    };
 
 	return CyclicBarrier;

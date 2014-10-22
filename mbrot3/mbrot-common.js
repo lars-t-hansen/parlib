@@ -19,16 +19,16 @@ const Task = SS.Type({mem:SS.ref,             // SharedArray.int32
 function perform(queue, ready) {
     for (;;) {
 	var t = queue.get(Task);
-	const g_magnification = t.get_magnification();
+	const g_magnification = t.magnification;
 	if (g_magnification == 0.0)
 	    break;
 	const g_top = g_center_y + 1/g_magnification;
 	const g_bottom = g_center_y - 1/g_magnification;
 	const g_left = g_center_x - width/height*1/g_magnification;
 	const g_right = g_center_x + width/height*1/g_magnification;
-	const mem = t.get_mem(SharedArray.int32);
+	const mem = t.mem;
 
-	var ybottom = t.get_ybottom();
+	var ybottom = t.ybottom;
 	var ytop = Math.min(height, Math.floor(ybottom + (height / numSlices)));
 	var MAXIT = 1000;
 	for ( var Py=ybottom ; Py < ytop ; Py++ ) {
@@ -48,7 +48,7 @@ function perform(queue, ready) {
 		mem[Py*width+Px] = (255 << 24) | (g << 8); // rgba, BUT little-endian
 	    }
 	}
-	if (t.get_count(SharedVar.int32).add(-1) == 1)
+	if (t.count.add(-1) == 1)
 	    ready();
     }
 }

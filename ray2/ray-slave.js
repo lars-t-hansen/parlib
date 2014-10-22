@@ -10,6 +10,6 @@ onmessage =
     function (ev) {
 	SharedHeap.setup(ev.data, "slave");
 	show("Slave online");
-	raytrace(sharedVar0.get(Coord), function () { postMessage("done"); });
+	raytrace(sharedVar0.get(), function () { postMessage("done"); });
 	show("Slave quiescent");
     };
