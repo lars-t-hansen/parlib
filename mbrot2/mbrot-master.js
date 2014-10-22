@@ -1,6 +1,6 @@
 // On my MBP I get:
-//   2.9 fps (41s) with 1 worker
 //   13.3 fps (9s) with 8 workers
+//   2.9 fps (41s) with 1 worker
 
 const numWorkers = 8;
 

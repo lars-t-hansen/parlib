@@ -113,15 +113,23 @@ ref.
       // Receiver
       var x = sharedVar0.get(SharedArray.int32)
 
-When writing a value to a SharedArray.ref element the value may be
-null or a shared object.
+SharedArray.ref is a little bit different.  To read an element, use the
+get() method:
 
-The value read from a SharedArray.ref with the [] operator will appear
-to be an integer; it *must immediately* be processed with an
-appropriate constructor.  For example if the value's type is
-MySharedType then do this:
+   v = a.get(MyConstructor, index)
 
-     var x = MySharedType.fromRef(a[10])
+To write an element (or null), use the put method:
+
+  a.put(index, value)
+
+It is possible to use the [] operator on SharedArray.ref; the values
+will appear to be integers.  Two tips:
+
+- Don't do it.
+
+- If you do it anyway, make sure to process any read values with
+  MyConstructor.fromRef() immediately, and write the value of
+  obj._base.
 
 Shared array read and write are /not/ synchronization points.
 

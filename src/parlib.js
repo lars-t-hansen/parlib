@@ -3,7 +3,7 @@
  * conveniently.
  *
  * DRAFT.
- * 21 October 2014 / lhansen@mozilla.com.
+ * 22 October 2014 / lhansen@mozilla.com.
  *
  * For documentation and examples see parlib.txt.
  */
@@ -41,9 +41,16 @@
  *
  *  - the instance must have these properties:
  *    - _base
- *      The shared-memory address (within _iab)
- *  
- * 
+ *      The shared-memory address (within _iab) of the object header
+ *
+ * Every implementation of an 'array' type must additionally conform
+ * to the following:
+ *
+ *  - the prototype or instance must have these properties:
+ *    - bytePtr()
+ *      The byte offset within the heap of the first data elemement
+ *
+ *
  * Shared memory object layout.
  *
  * Each object maps to an even number of words in the integer mapping
@@ -313,6 +320,8 @@ SharedHeap.allocArray =
 // TODO: hide this
 
 function SharedArrayConstructor(d, constructor, isRefArray) {
+    "use strict";
+
     return function (_a1, _a2, _a3) {
         var p;
         var nelements;
@@ -330,8 +339,10 @@ function SharedArrayConstructor(d, constructor, isRefArray) {
         a._base = p;
 	// This is gross, but as a SharedArray.ref is currently just
 	// a SharedInt32Array, we don't want to place this method on the prototype.
-	if (isRefArray)
-	    a.get = function (c) { return c.fromRef(this._base); }
+	if (isRefArray) {
+	    a.get = function (c, x) { return c.fromRef(a[x]); }
+	    a.put = function (x, v) { a[x] = v ? v._base : 0; }
+	}
         return a;
     };
 }
@@ -411,6 +422,8 @@ SharedObjectProto.prototype = {
 // TODO: hide this function.
 
 function SharedObjectFromReffer(constructor) {
+    "use strict";
+
     var d = constructor._desc;
     if (!d)
         throw new Error("Bad constructor: no _desc: " + constructor);
