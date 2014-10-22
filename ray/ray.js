@@ -3,9 +3,10 @@
 //
 // lth@acm.org / lhansen@mozilla.com, winter 2012 and later.
 //
-// The language is straight Javascript and runs properly in Safari as
-// well as in Firefox.  The program runs in Chrome as well but the
-// output is all wrong - it's completely purple.
+// The language is straight Javascript and runs properly in Safari and
+// Chrome well as in Firefox.  (The program had to be modified to run
+// in Chrome because Chrome appears to hoist "const" declarations out
+// of loops.)
 
 // CONFIGURATION
 
@@ -61,7 +62,7 @@ Scene.prototype.intersect =
 	var min_obj = null;
 	var min_dist = SENTINEL;
 
-	const objs = this.objects;
+	var objs = this.objects;
 	for ( var idx=0, limit=objs.length ; idx < limit ; idx++ ) {
 	    var surf = objs[idx];
 	    var tmp = surf.intersect(eye, ray, min, max);
@@ -201,14 +202,6 @@ function main() {
     var now = Date.now();
     PRINT("Render time=" + (now - then)/1000 + "s");
 
-    // This shows that Chrome computes wrong values
-    /*
-    var s = "";
-    for ( var i=0 ; i < width ; i++ )
-	s += " " + bits.ref(300, i);
-    PRINT(s);
-    */
-
     var mycanvas = document.getElementById("mycanvas");
     var cx = mycanvas.getContext('2d');
     var id  = cx.createImageData(width, height);
@@ -294,10 +287,11 @@ function traceWithoutAntialias(hmin, hlim) {
 	if (debug)
 	    PRINT("Row " + h);
 	for ( var w=0 ; w < width ; w++ ) {
-	    const u = g_left + (g_right - g_left)*(w + 0.5)/width;
-	    const v = g_bottom + (g_top - g_bottom)*(h + 0.5)/height;
-	    const ray = DL3(u, v, -eye.z);
-	    bits.setColor(h, w, raycolor(eye, ray, 0, SENTINEL, reflection_depth));
+	    var u = g_left + (g_right - g_left)*(w + 0.5)/width;
+	    var v = g_bottom + (g_top - g_bottom)*(h + 0.5)/height;
+	    var ray = DL3(u, v, -eye.z);
+	    var col = raycolor(eye, ray, 0, SENTINEL, reflection_depth);
+	    bits.setColor(h, w, col);
 	}
     }
 }
@@ -322,11 +316,11 @@ function traceWithAntialias(hmin, hlim) {
 	    k++;
 	    for ( var p=0 ; p < n ; p++ ) {
 		for ( var q=0 ; q < n ; q++ ) {
-		    const jx = random_numbers[rand]; rand=rand+1;
-		    const jy = random_numbers[rand]; rand=rand+1;
-		    const u = g_left + (g_right - g_left)*(w + (p + jx)/n)/width;
-		    const v = g_bottom + (g_top - g_bottom)*(h + (q + jy)/n)/height;
-		    const ray = DL3(u, v, -eye.z);
+		    var jx = random_numbers[rand]; rand=rand+1;
+		    var jy = random_numbers[rand]; rand=rand+1;
+		    var u = g_left + (g_right - g_left)*(w + (p + jx)/n)/width;
+		    var v = g_bottom + (g_top - g_bottom)*(h + (q + jy)/n)/height;
+		    var ray = DL3(u, v, -eye.z);
 		    c = add(c, raycolor(eye, ray, 0.0, SENTINEL, reflection_depth));
 		}
 	    }
