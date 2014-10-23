@@ -6,16 +6,16 @@
 // COORDINATION
 
 const Task =
-    SharedStruct.Type({height:SharedStruct.int32,   // Number of rows in slice
-                       bottom:SharedStruct.int32},  // Bottommost row in slice
-		      "Task");
+    SharedStruct.Type("Task",
+		      {height:SharedStruct.int32,   // Number of rows in slice
+                       bottom:SharedStruct.int32}); // Bottommost row in slice
 
 const Coord =
-    SharedStruct.Type({queue:SharedStruct.ref,     // BoundedBuffer.ref of Task
+    SharedStruct.Type("Coord",
+		      {queue:SharedStruct.ref,     // BoundedBuffer.ref of Task
 		       world:SharedStruct.ref,     // World, below
                        mem:SharedStruct.ref,       // SharedArray.int32
-                       count:SharedStruct.ref},    // SharedVar.int32
-		      "Coord");
+                       count:SharedStruct.ref});   // SharedVar.int32
 
 // END COORDINATION
 
@@ -50,10 +50,10 @@ function dot(a, b) { return a.x*b.x + a.y*b.y + a.z*b.z; }
 // (x,y,z) triples in shared memory
 
 const Vec3 =
-    SharedStruct.Type({x:SharedStruct.float64,
+    SharedStruct.Type("Vec3",
+		      {x:SharedStruct.float64,
 		       y:SharedStruct.float64,
-		       z:SharedStruct.float64},
-		      "Vec3");
+		       z:SharedStruct.float64});
 
 // Transform a local triple (from DL3) to a triple in shared memory
 
@@ -62,19 +62,18 @@ function V3(x) {
 }
 
 const Material =
-    SharedStruct.Type({diffuse:   SharedStruct.ref, // Vec3,
+    SharedStruct.Type("Material",
+		      {diffuse:   SharedStruct.ref, // Vec3,
 		       specular:  SharedStruct.ref, // Vec3,
 		       shininess: SharedStruct.float64,
 		       ambient:   SharedStruct.ref, // Vec3,
-		       mirror:    SharedStruct.float64},
-		      "Material");
+		       mirror:    SharedStruct.float64});
 
 
 const Scene =
-    SharedStruct.Type({tag:      SharedStruct.int32, // Hack
-		       material: SharedStruct.ref,   // Material,
-		       objects:  SharedStruct.ref},  // Array of scene objects
-		      "Scene");
+    SharedStruct.Type("Scene",
+		      {material: SharedStruct.ref,   // Material,
+		       objects:  SharedStruct.ref}); // Array of scene objects
 
 Scene.prototype.intersect =
     function (eye, ray, min, max) {
@@ -104,11 +103,10 @@ Scene.prototype.normal =
     };
 
 const Sphere =
-    SharedStruct.Type({tag:      SharedStruct.int32, // Hack
-		       material: SharedStruct.ref,   // Material,
+    SharedStruct.Type("Sphere",
+		      {material: SharedStruct.ref,   // Material,
 		       center:   SharedStruct.ref,   // Vec3
-		       radius:   SharedStruct.float64},
-		      "Sphere");
+		       radius:   SharedStruct.float64});
 
 Sphere.prototype.intersect =
     function (eye, ray, min, max) {
@@ -137,12 +135,11 @@ Sphere.prototype.normal =
     };
 
 const Triangle =
-    SharedStruct.Type({tag:      SharedStruct.int32, // Hack
-		       material: SharedStruct.ref,   // Material
+    SharedStruct.Type("Triangle",
+		      {material: SharedStruct.ref,   // Material
 		       v1:       SharedStruct.ref,   // Vec3
 		       v2:       SharedStruct.ref,   // Vec3
-		       v3:       SharedStruct.ref},  // Vec3
-		      "Triangle");
+		       v3:       SharedStruct.ref}); // Vec3
 
 Triangle.prototype.intersect =
     function (eye, ray, min, max) {
@@ -225,11 +222,11 @@ var background;			// Vec3: background color
 var world;			// Scene
 
 const World =
-    SharedStruct.Type({eye:        SharedStruct.ref,   // Vec3
+    SharedStruct.Type("World",
+		      {eye:        SharedStruct.ref,   // Vec3
 		       light:      SharedStruct.ref,   // Vec3
 		       background: SharedStruct.ref,   // Vec3
-		       scene:      SharedStruct.ref},  // Scene
-		      "World");
+		       scene:      SharedStruct.ref}); // Scene
 
 
 // To be called by the master to set up the shared scene graph.
@@ -248,15 +245,13 @@ function setStage() {
     }
 
     function sphere(material, center, radius) {
-	objs.push(new Sphere({tag:      Sphere.tag,
-			      material: material,
+	objs.push(new Sphere({material: material,
 			      center:   V3(center),
 			      radius:   radius}));
     }
 
     function triangle(material, v1, v2, v3) {
-	objs.push(new Triangle({tag:      Triangle.tag,
-				material: material,
+	objs.push(new Triangle({material: material,
 				v1:       V3(v1),
 				v2:       V3(v2),
 				v3:       V3(v3)}));
@@ -319,7 +314,7 @@ function setStage() {
     return new World({eye:        V3(DL3(0.5, 0.75, 5)),
 		      light:      V3(DL3(g_left-1, g_top, 2)),
 		      background: V3(DL3(25.0/256.0,25.0/256.0,112.0/256.0)),
-		      scene:      new Scene({tag: Scene.tag, material: m0, objects: a})});
+		      scene:      new Scene({material: m0, objects: a})});
 }
 
 function trace(hmin, hlim) {

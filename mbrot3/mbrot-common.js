@@ -11,7 +11,8 @@ const width = 640;
 const numSlices = 100;
 
 const SS = SharedStruct;
-const Task = SS.Type({mem:SS.ref,             // SharedArray.int32
+const Task = SS.Type("Task",
+		     {mem:SS.ref,             // SharedArray.int32
 		      count:SS.ref,           // SharedVar.int32
 		      magnification:SS.float64,
 		      ybottom:SS.int32});

@@ -30,7 +30,8 @@ BoundedBuffer.ref =
 	// empty to nonempty or full to nonfull.
 
 	const BoundedBuffer =
-	    SharedStruct.Type({_items:SharedStruct.ref,
+	    SharedStruct.Type("BoundedBuffer",
+			      {_items:SharedStruct.ref,
 			       _waiters:SharedStruct.int32,
 			       _head:SharedStruct.int32,
 			       _tail:SharedStruct.int32,

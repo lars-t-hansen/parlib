@@ -52,16 +52,6 @@ To read a value from a shared variable use "get()":
 
    var w = v.get()
 
-When reading from a SharedVar.ref the constructor for the object type
-in the variable must be passed, so that the object can be created
-properly:
-
-   // Sender
-   r.put(obj)
-...
-   // Receiver
-   var w = r.get(SharedArray.int32)  // Note constructor argument
-
 Values of SharedVar.ref may be null or shared objects: not any other
 non-shared-object value.
 
@@ -82,7 +72,7 @@ used among workers to communicate setup information, as follows:
 (2) On the slave, after initializing the shared heap, get those
     instructions from the shared variable:
 
-      var obj = sharedVar0.get(<constructor>)
+      var obj = sharedVar0.get()
 
 The initial value of sharedVar0 is null.
 
@@ -111,25 +101,19 @@ ref.
       sharedVar0.put(a);
     ...
       // Receiver
-      var x = sharedVar0.get(SharedArray.int32)
+      var x = sharedVar0.get()
 
 SharedArray.ref is a little bit different.  To read an element, use the
 get() method:
 
-   v = a.get(MyConstructor, index)
+   v = a.get(index)
 
 To write an element (or null), use the put method:
 
   a.put(index, value)
 
-It is possible to use the [] operator on SharedArray.ref; the values
-will appear to be integers.  Two tips:
-
-- Don't do it.
-
-- If you do it anyway, make sure to process any read values with
-  MyConstructor.fromRef() immediately, and write the value of
-  obj._base.
+It is *possible* to use the [] operator on SharedArray.ref; the values
+will appear to be integers.  Don't do this.
 
 Shared array read and write are /not/ synchronization points.
 
@@ -154,34 +138,24 @@ The object "SharedStruct" contains types and type constructors for
 shared structure values, somewhat similar to TypedObjects.  To
 construct a 3D point structure:
 
-    var Point3D = SharedStruct.Type({x:SharedStruct.int32,
-                                     y:SharedStruct.int32,
-                                     z:SharedStruct.int32})
+    var Point3D = SharedStruct.Type("Point3D", {x:SharedStruct.int32,
+                                                y:SharedStruct.int32,
+                                                z:SharedStruct.int32})
+
+The name tag must be globally unique.  Types with the same tag in
+different workers must have the same structure.
 
 Other types are SharedStruct.float64, SharedStruct.atomic_int32,
 SharedStruct.atomic_float64, SharedStruct.ref, and
-SharedStruct.atomic_ref.  The ref types are special: they must be
-applied to a structure type:
+SharedStruct.atomic_ref.
 
-    var Node = SharedStruct.Type({v:SharedStruct.int32,
-                                  p:SharedStruct.ref(Point3D)})
+A structure instance has getters and setters for the various fields:
+if p is a Point32 then p.x will read the x field and p.y=37 will set
+the y field to 37.
 
-The reason for that is that referencing a ref field returns a new
-front object of the correct type.  [Would be useful to avoid it, and
-instead reconstruct from the type tag.]
-
-A structure instance has getters and setters for the various fields,
-currently as methods: if p is a Point32 then p.get_x() will read the x
-field and p.set_y(37) will set the y field.
-
-For atomic int32 and float64 fields "x" there are also methods
-add_x(v) to atomically add to the field, and
-compareExchange_x(oldval,newval) to compare-and-exchange values.  Both
-return the old value of the cell.
-
-For atomic ref fields "x" there is a method
-compareExchange_x(c,oldval,newval) to compare-and-exchange values; c
-is the constructor that is needed to return the old value of the cell.
+For atomic fields "x" there are also methods add_x(v) to atomically
+add to the field, and compareExchange_x(oldval,newval) to
+compare-and-exchange values.  Both return the old value of the cell.
 
 A structure instance is constructed by passing an object literal for
 the field values:
@@ -193,19 +167,13 @@ then the structure field is initialized with an appropriate zero value
 or null pointer.  Superflous fields in the initializer object are
 ignored.
 
-As ref types require a type argument there is a way to forward-declare
-a type:
+Special field names trigger special behavior in the type system:
 
-   var F = SharedStruct.Forward();
-   var N = SharedStruct.Type({v:SharedStruct.int32, next:F});
-   F.bind(N);
+- A field whose name starts with '_' is an "internal property", it
+  will be initialized to zero/null regardless of whether a value is
+  present for it in the initializer.
 
-The following hacks are occasionally useful:
-
-- A field whose name starts with '_' will be initialized to zero/null
-  regardless of whether a value is present for it in the initializer.
-
-- A field whose name starts with '$' is a plain data property:
+- A field whose name starts with '$' is a "plain data property":
    - the field cannot be atomic
    - no getter or setter is generated for it
    - it is always zero/null-initialized
@@ -235,70 +203,6 @@ leak.
 
 Once all references to an object in the shared heap are gone, that
 object can be garbage collected.
-
-
-Discussion: type system
------------------------
-
-Typed vs untyped ref variables:  Right now it's a mess.
-
- - SharedVar.ref is untyped because sharedVar0 requires it to be, that
-   means that the 'get' method takes a constructor argument.
-
- - SharedArray.ref (not implemented) is untyped /and/ has the usual []
-   accessor because it's an int array, which means that the user must
-   call T.fromRef(r) on the reference value r extracted with []
-
- - SharedStruct.ref is typed, for the sake of convenience (looking
-   forward to when we have a proper getter).  This causes complexity
-   with the Forward reference and with type definition in general.
-
-The *right* way is for the loading of a reference to reconstruct the
-object automatically from the bits (ie untyped fields), which means
-that there must be enough type information in the object to do that.
-That means all type information must be in the shared heap and that
-each shared object must point to it.  It also means that when anybody
-constructs a new type it must be linked to any existing type that it
-is supposed to be equivalent with, somehow.
-
-The *next best* way is for that linking to be by name ("brand"): every
-shared type is branded, and creating a shared type will link two types
-if they are the same brand, it will be an error if they do not have
-the same structure.
-
-We should get rid of the requirement for ref(T) - for now we should
-require the getter to take a constructor, as for SharedVar.  We should
-get rid of Forward.
-
-Ergo there is a linked list (say) of type descriptors which are just
-structures with name tags:
-
-    struct {
-        desc: int32
-        name: int32  -> pointer to halfwords representing name
-        cindex: int32
-    }
-
-    // length halfword
-    // first char ...
-    // second char ...
-    ...
-
-There needs to be a lock on this list.
-
-Oops, this means: when reading a value out of the heap the type must
-have been registered locally because we must be able to find the
-constructor, so there needs to be a constructor index which is
-/global/ and allocated by whoever gets to define the type first, and
-if we read a value for which there isn't a type then we blow up.
-
-
-As far as the SharedArray is concerned we want to overload the getter
-and setter, which will slow things down a lot in their use.  So maybe
-leave that as a special case.  Or, add a 'get(c, n)' method that
-gets element n and applies c.fromRef - for symmetry.  For further symmetry
-there should be a get(n) method on the other arrays, maybe.
-
 
 
 Discussion: performance

@@ -13,7 +13,8 @@ const width = Math.floor((g_right-g_left)*512);
 const numSlices = 100;
 
 const SS = SharedStruct;
-const Coord = SS.Type({queue:SS.ref,          // SharedInt32Array: representing the low y coordinate in the slice
+const Coord = SS.Type("Coord",
+		      {queue:SS.ref,          // SharedInt32Array: representing the low y coordinate in the slice
 		       qnext:SS.atomic_int32, // Next element to pick up in the queue
 		       use_barrier:SS.int32,  // Flag
 		       barrier:SS.ref,        // CyclicBarrier - use this if use_barrier

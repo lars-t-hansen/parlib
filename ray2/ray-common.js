@@ -8,11 +8,13 @@
 // COORDINATION
 
 const Task =
-    SharedStruct.Type({height:SharedStruct.int32,   // Number of rows in slice
+    SharedStruct.Type("Task",
+		      {height:SharedStruct.int32,   // Number of rows in slice
                        bottom:SharedStruct.int32}); // Bottommost row in slice
 
 const Coord =
-    SharedStruct.Type({queue:SharedStruct.ref,     // BoundedBuffer.ref of Task
+    SharedStruct.Type("Coord",
+		      {queue:SharedStruct.ref,     // BoundedBuffer.ref of Task
                        mem:SharedStruct.ref,       // SharedArray.int32
                        count:SharedStruct.ref});   // SharedVar.int32
 

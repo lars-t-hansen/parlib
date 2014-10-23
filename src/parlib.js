@@ -3,20 +3,26 @@
  * conveniently.
  *
  * DRAFT.
- * 22 October 2014 / lhansen@mozilla.com.
+ * 23 October 2014 / lhansen@mozilla.com.
  *
  * For documentation and examples see parlib.txt.
  */
 
 /*
  * TODO:
- *  - Structural equivalence for type reconstruction is really not
- *    a great idea, even if it's safe.  We may want to introduce
- *    some notion of a brand, at a minimum.
+ *  - Shared database of types, lookup by brand, check equivalence, not
+ *    a magic order-of-definition as now.
+ *
+ *  - The fromRef machinery is probably out of date: it may not be
+ *    needed in its current form, and the null check in fromRef is
+ *    redundant because all callers use it.  Really fromRef need not
+ *    be part of the exposed protocol (to the extent it really is).
  *
  *  - Storage management.
  *
  *  - More atomic operations (sub on int/float; and, or, xor on int)
+ *
+ *  - A string type.
  *
  *  - Locks and condition vars can probably be faster.
  */
@@ -61,8 +67,9 @@
  *   +-+---+------------------------+----+
  *   |0| B | F                      | C  |
  *   +-+---+----------+-------------+----+
- *   |       U        |        D         |
+ *   |0|     U        |        D         |
  *   +----------------+------------------+
+ *    hi                               lo
  *
  * 0 is always zero (making the descriptor a nonnegative int32 value)
  *
@@ -75,7 +82,7 @@
  * will be a constructor with a fromRef method that converts a raw
  * pointer back to an object.
  *
- * U is unused.
+ * U is unused, it must be zero.
  *
  * If B=000 then the value is a "structure" type:
  *
@@ -209,39 +216,39 @@ var _sab;                       // SharedArrayBuffer used for the heap
 var _iab;                       // SharedInt32Array covering the _sab
 var _dab;                       // SharedFloat64Array covering the _sab
 
-const _typetable = {};		// Local map from integer to constructor
-var _typetag = 1;		// No type has tag 0
+const _typetable = {};          // Local map from integer to constructor
+var _typetag = 1;               // No type has tag 0
 
-_typetable[0] =			// Provide a sane handler for tag 0
+_typetable[0] =                 // Provide a sane handler for tag 0
     function () {
-	throw new Error("Type tag 0 was looked up: not right");
+        throw new Error("Type tag 0 was looked up: not right");
     };
 
-const SharedHeap = { pid: -1 };	// The pid is altered by SharedHeap.setup().
+const SharedHeap = { pid: -1 }; // The pid is altered by SharedHeap.setup().
 
 var sharedVar0;
 
 SharedHeap.allocate =
     function (nbytes) {
-	const sixteen = 16*1024*1024;
-	if (nbytes < 4096)
-	    nbytes = 4096;
-	if (nbytes < sixteen) {
-	    // Must be power of 2
-	    var k = 0;
-	    while (nbytes != 1) {
-		if (nbytes & 1)
-		    nbytes += 1;
-		k++;
-		nbytes >>= 1;
-	    }
-	    nbytes <<= k;
-	}
-	else if (nbytes % sixteen) {
-	    // Must be multiple of 16M
-	    nbytes = (nbytes + (sixteen - 1)) & ~(sixteen - 1);
-	}
-	return new SharedArrayBuffer(nbytes);
+        const sixteen = 16*1024*1024;
+        if (nbytes < 4096)
+            nbytes = 4096;
+        if (nbytes < sixteen) {
+            // Must be power of 2
+            var k = 0;
+            while (nbytes != 1) {
+                if (nbytes & 1)
+                    nbytes += 1;
+                k++;
+                nbytes >>= 1;
+            }
+            nbytes <<= k;
+        }
+        else if (nbytes % sixteen) {
+            // Must be multiple of 16M
+            nbytes = (nbytes + (sixteen - 1)) & ~(sixteen - 1);
+        }
+        return new SharedArrayBuffer(nbytes);
     };
 
 SharedHeap.setup =
@@ -251,7 +258,7 @@ SharedHeap.setup =
         _dab = new SharedFloat64Array(sab);
         switch (whoami) {
         case "master":
-	    SharedHeap.pid = 0;
+            SharedHeap.pid = 0;
             _iab[0] = 0;
             _iab[1] = 4;            // Initial allocation pointer
             _iab[2] = _iab.length;
@@ -261,7 +268,7 @@ SharedHeap.setup =
                 throw new Error("Internal error: bad SharedVar location");
             break;
         case "slave":
-	    SharedHeap.pid = Atomics.add(_iab, 3, 1);
+            SharedHeap.pid = Atomics.add(_iab, 3, 1);
             sharedVar0 = SharedVar.ref.fromRef(_sharedVar_loc);
             break;
         default:
@@ -300,7 +307,7 @@ SharedHeap.alloc =
         var iab = _iab;
         obj._base = v;
         iab[v] = d;
-	iab[v+1] = tag;
+        iab[v+1] = tag;
         return v;
     };
 
@@ -323,7 +330,7 @@ SharedHeap.allocArray =
         var v = SharedHeap.allocStorage(nwords);
         var iab = _iab;
         iab[v] = d;
-	iab[v+1] = tag;
+        iab[v+1] = tag;
         iab[v+2] = nbytes;
         return v;
     };
@@ -353,15 +360,16 @@ function SharedArrayConstructor(d, constructor, typetag) {
         }
         var a = new constructor(_sab, (d == _array_float64_desc ? 16 : 12)+(p*4), nelements);
         a._base = p;
-	// A SharedArray.ref is currently just a SharedInt32Array, we don't want
-	// to place these methods on the prototype.
-	if (d == _array_ref_desc) {
+        // A SharedArray.ref is currently just a SharedInt32Array, we don't want
+        // to place these methods on the prototype.
+        if (d == _array_ref_desc) {
             a.get = function (index) {
-		var p = a[index];
-		return _typetable[_iab[p+1] & 65535].fromRef(p);
-	    };
+                var p = a[index];
+                if (p == 0) return null;
+                return _typetable[_iab[p+1] & 65535].fromRef(p);
+            };
             a.put = function (x, v) { a[x] = v ? v._base : 0; };
-	}
+        }
         return a;
     };
 }
@@ -371,45 +379,45 @@ const SharedArray = {};
 (function () {
     var itag = _typetag++;
     SharedArray.int32 =
-	SharedArrayConstructor(_array_int32_desc, SharedInt32Array, itag);
+        SharedArrayConstructor(_array_int32_desc, SharedInt32Array, itag);
     _typetable[itag] = SharedArray.int32;
     SharedArray.int32._desc = _array_int32_desc;
     SharedArray.int32.fromRef =
-	function (r) {
-	    if (r == 0) return null;
+        function (r) {
+            if (r == 0) return null;
             return new SharedArray.int32(_noalloc, r, _iab[r+2]/4);
-	};
+        };
     SharedInt32Array.prototype.bytePtr =
-	function () {
-	    return this._base*4 + 12;
-	};
+        function () {
+            return this._base*4 + 12;
+        };
 
     var rtag = _typetag++;
     SharedArray.ref =
-	SharedArrayConstructor(_array_ref_desc, SharedInt32Array, rtag);
+        SharedArrayConstructor(_array_ref_desc, SharedInt32Array, rtag);
     _typetable[rtag] = SharedArray.ref;
     SharedArray.ref._desc = _array_ref_desc;
     SharedArray.ref.fromRef =
-	function (r) {
-	    if (r == 0) return null;
+        function (r) {
+            if (r == 0) return null;
             return new SharedArray.ref(_noalloc, r, _iab[r+2]/4);
-	};
+        };
     // bytePtr is inherited from SharedArray.int32
 
     var ftag = _typetag++;
     SharedArray.float64 =
-	SharedArrayConstructor(_array_float64_desc, SharedFloat64Array, ftag);
+        SharedArrayConstructor(_array_float64_desc, SharedFloat64Array, ftag);
     _typetable[ftag] = SharedArray.float64;
     SharedArray.float64._desc = _array_float64_desc;
     SharedArray.float64.fromRef =
-	function (r) {
-	    if (r == 0) return null;
+        function (r) {
+            if (r == 0) return null;
             return new SharedArray.float64(_noalloc, r, _iab[r+2]/8);
-	};
+        };
     SharedFloat64Array.prototype.bytePtr =
-	function () {
-	    return this._base*4 + 16; // *4 even for double arrays, but also padding
-	};
+        function () {
+            return this._base*4 + 16; // *4 even for double arrays, but also padding
+        };
 })();
 
 //////////////////////////////////////////////////////////////////////
@@ -448,6 +456,17 @@ SharedObjectProto.prototype = {
 //
 // TODO: hide this function.
 
+// This local object cache is valid in the presence of GC and even
+// manual storage management if it is cleared on GC or whenever a
+// freed object is reused, or if a freed object is removed from the
+// cache.
+
+const _fromref = Array.build(1024, (x) => 0);
+const _fromobj = Array.build(1024, (x) => null);
+
+var _hits = 0;
+var _misses = 0;
+
 function SharedObjectFromReffer(constructor) {
     "use strict";
 
@@ -455,25 +474,35 @@ function SharedObjectFromReffer(constructor) {
     if (!d)
         throw new Error("Bad constructor: no _desc: " + constructor);
     return function (ref) {
-	if (ref == 0) return null;
+        if (ref == 0) return null;
         if (_iab[ref] != d)
             throw new Error("Bad reference: unmatched descriptor: wanted " + d + ", got " + _iab[ref]);
+        var k = (ref >> 3) & 1023;
+        if (_fromref[k] == ref) {
+            //_hits++;
+            return _fromobj[k];
+        }
         var l = new constructor(_noalloc);
         l._base = ref;
+        _fromref[k] = ref;
+        _fromobj[k] = l;
+        //_misses++;
         return l;
     };
 }
 
 SharedStruct.Type =
-    function(fields, tagname) {
+    function(tagname, fields) {
+        if (typeof tagname != "string")
+            throw new Error("Tag name must be a string");
         var lockloc = 0;
-        var loc = 2;		// Header followed by type tag
+        var loc = 2;            // Header followed by type tag
         var desc = 0;
         var acc = [];
-	var meth = [];
-        var ainit = [];		// Always init
-        var init = [];		// Init if an object is present
-	var zinit = [];		// Init if an object is not present
+        var meth = [];
+        var ainit = [];         // Always init
+        var init = [];          // Init if an object is present
+        var zinit = [];         // Init if an object is not present
         var cprop = [];
         for ( var i in fields ) {
             if (!fields.hasOwnProperty(i))
@@ -492,55 +521,55 @@ SharedStruct.Type =
             if (i.charAt(0) == '$')
                 cprop.push([i, loc]);
             if (f === SharedStruct.int32) {
-		var a = true;
+                var a = true;
                 if (i.charAt(0) != '$') {
                     acc.push([i, 
                               `function() { return _iab[this._base + ${loc}] }`,
                               `function(v) { return _iab[this._base + ${loc}] = v; }`]);
-		    if (i.charAt(0) != '_') {
-			init.push(`_iab[this._base + ${loc}] = _v.${i}`); // undefined => nan => 0
-			zinit.push(`_iab[this._base + ${loc}] = 0`);
-			a = false;
-		    }
-		}
-		if (a)
+                    if (i.charAt(0) != '_') {
+                        init.push(`_iab[this._base + ${loc}] = _v.${i}`); // undefined => nan => 0
+                        zinit.push(`_iab[this._base + ${loc}] = 0`);
+                        a = false;
+                    }
+                }
+                if (a)
                     ainit.push(`_iab[this._base + ${loc}] = 0`);
                 desc = desc | (_i32 << ((loc-2)*2));
                 loc++;
             }
             else if (f === SharedStruct.atomic_int32) {
                 if (i.charAt(0) == '$')
-		    throw new Error("Private atomic fields are silly");
+                    throw new Error("Private atomic fields are silly");
                 acc.push([i,
                           `function() { return Atomics.load(_iab, this._base + ${loc}) }`,
                           `function(v) { return Atomics.store(_iab, this._base + ${loc}, v) }`]);
-		meth.push([`add_${i}`, `function(v) { return Atomics.add(_iab, this._base + ${loc}, v); }`]);
-		meth.push([`compareExchange_${i}`,
-			   `function(oldval,newval) {
-			       return Atomics.compareExchange(_iab, this._base + ${loc}, oldval, newval);
-			   }`]);
-		if (i.charAt(0) != '_') {
+                meth.push([`add_${i}`, `function(v) { return Atomics.add(_iab, this._base + ${loc}, v); }`]);
+                meth.push([`compareExchange_${i}`,
+                           `function(oldval,newval) {
+                               return Atomics.compareExchange(_iab, this._base + ${loc}, oldval, newval);
+                           }`]);
+                if (i.charAt(0) != '_') {
                     init.push(`_iab[this._base + ${loc}] = _v.${i}`);
                     zinit.push(`_iab[this._base + ${loc}] = 0`);
-		}
-		else
+                }
+                else
                     ainit.push(`_iab[this._base + ${loc}] = 0`);
                 desc = desc | (_i32 << ((loc-2)*2));
                 loc++;
             }
             else if (f === SharedStruct.float64) {
-		var a = true;
+                var a = true;
                 if (i.charAt(0) != '$') {
                     acc.push([i, 
                               `function() { return _dab[(this._base + ${loc}) >> 1] }`,
                               `function(v) { return _dab[(this._base + ${loc}) >> 1] = v }`]);
-		    if (i.charAt(0) != '_') {
-			init.push(`_dab[(this._base + ${loc}) >> 1] = _v.hasOwnProperty("${i}") ? _v.${i} : 0.0`);
-			zinit.push(`_dab[(this._base + ${loc}) >> 1] = 0.0`);
-			a = false;
-		    }
-		}
-		if (a)
+                    if (i.charAt(0) != '_') {
+                        init.push(`_dab[(this._base + ${loc}) >> 1] = _v.hasOwnProperty("${i}") ? _v.${i} : 0.0`);
+                        zinit.push(`_dab[(this._base + ${loc}) >> 1] = 0.0`);
+                        a = false;
+                    }
+                }
+                if (a)
                     ainit.push(`_dab[(this._base + ${loc}) >> 1] = 0.0`);
                 desc = desc | (_f64 << ((loc-2)*2));
                 loc++;
@@ -549,7 +578,7 @@ SharedStruct.Type =
             }
             else if (f === SharedStruct.atomic_float64) {
                 if (i.charAt(0) == '$')
-		    throw new Error("Private atomic fields are silly");
+                    throw new Error("Private atomic fields are silly");
                 acc.push([i,
                           `function() {
                               var b = this._base;
@@ -565,30 +594,30 @@ SharedStruct.Type =
                               var r = _dab[(b + ${loc}) >> 1] = v;
                               Atomics.store(_iab, b+lockloc, 0);
                               return r; }`]);
-		meth.push([`add_${i}`,
-			   `function(v) {
+                meth.push([`add_${i}`,
+                           `function(v) {
                                var b = this._base;
                                while (Atomics.compareExchange(_iab, b+lockloc, 0, 1) != 0)
                                    ;
                                var r = _dab[(b + ${loc}) >> 1];
-			       _dab[(b + ${loc}) >> 1] += v;
+                               _dab[(b + ${loc}) >> 1] += v;
                                Atomics.store(_iab, b+lockloc, 0);
                                return r; }`]);
-		meth.push([`compareExchange_${i}`,
-			   `function(oldval,newval) {
+                meth.push([`compareExchange_${i}`,
+                           `function(oldval,newval) {
                                var b = this._base;
                                while (Atomics.compareExchange(_iab, b+lockloc, 0, 1) != 0)
                                   ;
                                var r = _dab[(b + ${loc}) >> 1];
-			       if (r == +oldval) 
-				   _dab[(b + ${loc}) >> 1] += +newval;
+                               if (r == +oldval) 
+                                   _dab[(b + ${loc}) >> 1] += +newval;
                                Atomics.store(_iab, b+lockloc, 0);
                                return r; }`]);
-		if (i.charAt(0) != '_') {
+                if (i.charAt(0) != '_') {
                     init.push(`_dab[(this._base + ${loc}) >> 1] = _v.hasOwnProperty("${i}") ? _v.${i} : 0.0`);
                     zinit.push(`_dab[(this._base + ${loc}) >> 1] = 0.0`);
-		}
-		else 
+                }
+                else 
                     ainit.push(`_dab[(this._base + ${loc}) >> 1] = 0.0`);
                 desc = desc | (_f64 << ((loc-2)*2));
                 loc++;
@@ -596,49 +625,53 @@ SharedStruct.Type =
                 loc++;
             }
             else if (f === SharedStruct.ref) {
-		// For arrays we need no further information, the descriptor has all the information.
-		// For structures the first field after the header must be the index within the
-		// local type table of the appropriate constructor.
-		//
-		// On the other hand that means a longer path for type reconstruction since we must
-		// test the descriptor.
-		var a = true;
+                // For arrays we need no further information, the descriptor has all the information.
+                // For structures the first field after the header must be the index within the
+                // local type table of the appropriate constructor.
+                //
+                // On the other hand that means a longer path for type reconstruction since we must
+                // test the descriptor.
+                var a = true;
                 if (i.charAt(0) != '$') {
                     acc.push([i, 
                               `function() {
-				  const p = _iab[this._base + ${loc}];
-				  return _typetable[_iab[p+1] & 65535].fromRef(p); }`,
+                                  const p = _iab[this._base + ${loc}];
+                                  if (p == 0) return null;
+                                  return _typetable[_iab[p+1] & 65535].fromRef(p); }`,
                               `function(v) { return _iab[this._base + ${loc}] = (v ? v._base : 0); }`]);
-		    if (i.charAt(0) != '_') {
-			init.push(`var tmp = _v.${i}; _iab[this._base + ${loc}] = (tmp ? tmp._base : 0)`); // undefined => nan => 0
-			zinit.push(`_iab[this._base + ${loc}] = 0`);
-			a = false;
-		    }
-		}
-		if (a)
+                    if (i.charAt(0) != '_') {
+                        init.push(`var tmp = _v.${i}; _iab[this._base + ${loc}] = (tmp ? tmp._base : 0)`); // undefined => nan => 0
+                        zinit.push(`_iab[this._base + ${loc}] = 0`);
+                        a = false;
+                    }
+                }
+                if (a)
                     ainit.push(`_iab[this._base + ${loc}] = 0`);
                 desc = desc | (_ref << ((loc-2)*2));
                 loc++;
             }
             else if (f === SharedStruct.atomic_ref) {
                 if (i.charAt(0) == '$')
-		    throw new Error("Private atomic fields are silly");
+                    throw new Error("Private atomic fields are silly");
                 acc.push([i,
                           `function() { 
-			      const p = Atomics.load(_iab, this._base + ${loc});
-			      return _typetable[_iab[p+1] & 65535].fromRef(p); }`,
+                              const p = Atomics.load(_iab, this._base + ${loc});
+                              if (p == 0) return null;
+                              return _typetable[_iab[p+1] & 65535].fromRef(p); }`,
                           `function(v) { return Atomics.store(_iab, this._base + ${loc}, (v ? v._base : 0)) }`]);
-		meth.push([`compareExchange_${i}`,
-			   `function(c,oldval,newval) {
-			       var o = oldval ? oldval._base : 0;
-			       var n = newval ? newval._base : 0;
-			       return c.fromRef(Atomics.compareExchange(_iab, this._base + ${loc}, o, n));
-			   }`]);
-		if (i.charAt(0) != '_') {
+                meth.push([`compareExchange_${i}`,
+                           `function(oldval,newval) {
+                               var o = oldval ? oldval._base : 0;
+                               var n = newval ? newval._base : 0;
+                               var p = Atomics.compareExchange(_iab, this._base + ${loc}, o, n);
+                               if (p == 0) return null;
+                               return _typetable[_iab[p+1] & 65535].fromRef(p);
+                           }`]);
+                if (i.charAt(0) != '_') {
                     init.push(`var tmp = _v.${i}; _iab[this._base + ${loc}] = (tmp ? tmp._base : 0)`);
                     zinit.push(`_iab[this._base + ${loc}] = 0`);
-		}
-		else
+                }
+                else
                     ainit.push(`_iab[this._base + ${loc}] = 0`);
                 desc = desc | (_ref << ((loc-2)*2));
                 loc++;
@@ -649,9 +682,9 @@ SharedStruct.Type =
         if ((loc-2) > 12)
             throw new Error("Too many fields");
         desc = (desc << 4) | (loc-2);
-	var ainits = '';
-	for ( var i of ainit )
-	    ainits += i + ';\n';
+        var ainits = '';
+        for ( var i of ainit )
+            ainits += i + ';\n';
         var inits = '';
         for ( var i of init )
             inits += i + ';\n';
@@ -660,16 +693,16 @@ SharedStruct.Type =
             zinits += i + ';\n';
         var accs = '';
         for ( var [i,g,s] of acc ) {
-	    var t = '';
-	    if (g || s) {
-		t += `{${i}: {`;
-		if (g)
-		    t += `get: ${g},`;
-		if (s) 
+            var t = '';
+            if (g || s) {
+                t += `{${i}: {`;
+                if (g)
+                    t += `get: ${g},`;
+                if (s) 
                     t += `set: ${s}`;
-		t += `}}`;
-		accs += `Object.defineProperties(p, ${t});\n`;
-	    }
+                t += `}}`;
+                accs += `Object.defineProperties(p, ${t});\n`;
+            }
         }
         var meths = '';
         for ( var [i,m] of meth )
@@ -677,38 +710,38 @@ SharedStruct.Type =
         var cprops = '';
         for ( var [i,p] of cprop )
             cprops += `c.${i} = ${p};\n`;
-	var finits =
-	    zinits != '' || inits != '' ? 
-	    `if (typeof _v !== "object" || _v === null) {
+        var finits =
+            zinits != '' || inits != '' ? 
+            `if (typeof _v !== "object" || _v === null) {
                 ${zinits}
              }
              else {
                 ${inits}
              }` :
-	"";
-	var typetag = _typetag++;
+        "";
+        var typetag = _typetag++;
         var code =
             `(function () {
-		"use strict";
+                "use strict";
                 var c = function (_v) {
                     if (_v === _noalloc) return;
                     SharedHeap.alloc(${desc}, ${typetag}, this);
-		    ${ainits}
-		    ${finits}
+                    ${ainits}
+                    ${finits}
                 }
                 c._desc = ${desc};
                 c.fromRef = SharedObjectFromReffer(c);
                 ${cprops}
-                var p = new SharedObjectProto(\'${tagname ? String(tagname) : "(anonymous)"}\');
-		${accs}
-		${meths}
+                var p = new SharedObjectProto(\'${tagname}\');
+                ${accs}
+                ${meths}
                 c.prototype = p;
                 return c;
             })();`;
-	// TODO: Is this eval() safe?  Note the code that is being run is strict.
+        // TODO: Is this eval() safe?  Note the code that is being run is strict.
         var c = eval(code);
-	_typetable[typetag] = c;
-	return c;
+        _typetable[typetag] = c;
+        return c;
     };
 
 //////////////////////////////////////////////////////////////////////
@@ -722,31 +755,31 @@ var SharedVar = {};
 
 SharedVar.int32 = 
     (function () {
-    	var T = SharedStruct.Type({_cell:SharedStruct.atomic_int32}, "SharedVar.int32");
-    	T.prototype.get = function () { return this._cell }
-    	T.prototype.put = function (v) { this._cell = v; }
-    	T.prototype.add = T.prototype.add__cell;
-    	T.prototype.compareExchange = T.prototype.compareExchange__cell;
-    	return T;
+        var T = SharedStruct.Type("SharedVar.int32", {_cell:SharedStruct.atomic_int32});
+        T.prototype.get = function () { return this._cell }
+        T.prototype.put = function (v) { this._cell = v; }
+        T.prototype.add = T.prototype.add__cell;
+        T.prototype.compareExchange = T.prototype.compareExchange__cell;
+        return T;
     })();
 
 SharedVar.float64 =
     (function () {
-	var T = SharedStruct.Type({_cell:SharedStruct.atomic_float64}, "SharedVar.float64");
-    	T.prototype.get = function () { return this._cell }
-    	T.prototype.put = function (v) { this._cell = v; }
-    	T.prototype.add = T.prototype.add__cell;
-  	T.prototype.compareExchange = T.prototype.compareExchange__cell;
-      	return T;
+        var T = SharedStruct.Type("SharedVar.float64", {_cell:SharedStruct.atomic_float64});
+        T.prototype.get = function () { return this._cell }
+        T.prototype.put = function (v) { this._cell = v; }
+        T.prototype.add = T.prototype.add__cell;
+        T.prototype.compareExchange = T.prototype.compareExchange__cell;
+        return T;
     })();
 
 SharedVar.ref =
     (function () {
-    	var T = SharedStruct.Type({_cell:SharedStruct.atomic_ref}, "SharedVar.ref");
-    	T.prototype.get = function () { return this._cell }
-    	T.prototype.put = function (v) { this._cell = v; }
-  	T.prototype.compareExchange = T.prototype.compareExchange__cell;
-      	return T;
+        var T = SharedStruct.Type("SharedVar.ref", {_cell:SharedStruct.atomic_ref});
+        T.prototype.get = function () { return this._cell }
+        T.prototype.put = function (v) { this._cell = v; }
+        T.prototype.compareExchange = T.prototype.compareExchange__cell;
+        return T;
     })();
 
 
@@ -766,51 +799,51 @@ SharedVar.ref =
 //   2: locked with possible waiters
 
 // _Lock is exposed to Cond.
-const _Lock = SharedStruct.Type({$index: SharedStruct.int32}, "Lock");
+const _Lock = SharedStruct.Type("Lock", {$index: SharedStruct.int32});
 
 var Lock =
     (function () {
-	"use strict";
+        "use strict";
 
-	const $index = _Lock.$index;
+        const $index = _Lock.$index;
 
-	_Lock.prototype.lock = 
-	    function () {
-		const iab = _iab;
-		const index = this._base + $index;
-		var c = 0;
-		if ((c = Atomics.compareExchange(iab, index, 0, 1)) != 0) {
-		    do {
-			if (c == 2 || Atomics.compareExchange(iab, index, 1, 2) != 0) {
-			    Atomics.futexWait(iab, index, 2, Number.POSITIVE_INFINITY);
-			}
-		    } while ((c = Atomics.compareExchange(iab, index, 0, 2)) != 0);
-		}
-	    };
+        _Lock.prototype.lock = 
+            function () {
+                const iab = _iab;
+                const index = this._base + $index;
+                var c = 0;
+                if ((c = Atomics.compareExchange(iab, index, 0, 1)) != 0) {
+                    do {
+                        if (c == 2 || Atomics.compareExchange(iab, index, 1, 2) != 0) {
+                            Atomics.futexWait(iab, index, 2, Number.POSITIVE_INFINITY);
+                        }
+                    } while ((c = Atomics.compareExchange(iab, index, 0, 2)) != 0);
+                }
+            };
 
-	_Lock.prototype.unlock =
-	    function () {
-		const iab = _iab;
-		const index = this._base + $index;
-		var v0 = Atomics.sub(iab, index, 1);
-		if (v0 != 1) { // Wake up a waiter if there are any.
-		    Atomics.store(iab, index, 0);
-		    Atomics.futexWake(iab, index, 1);
-		}
-	    };
+        _Lock.prototype.unlock =
+            function () {
+                const iab = _iab;
+                const index = this._base + $index;
+                var v0 = Atomics.sub(iab, index, 1);
+                if (v0 != 1) { // Wake up a waiter if there are any.
+                    Atomics.store(iab, index, 0);
+                    Atomics.futexWake(iab, index, 1);
+                }
+            };
         
-	_Lock.prototype.invoke =
-	    function (thunk) {
-		try {
-		    this.lock();
-		    return thunk();
-		}
-		finally {
-		    this.unlock();
-		}
-	    };
+        _Lock.prototype.invoke =
+            function (thunk) {
+                try {
+                    this.lock();
+                    return thunk();
+                }
+                finally {
+                    this.unlock();
+                }
+            };
 
-	return _Lock;
+        return _Lock;
     })();
 
 //////////////////////////////////////////////////////////////////////
@@ -838,38 +871,38 @@ var Lock =
 
 var Cond =
     (function () {
-	"use strict";
+        "use strict";
 
-	const Cond = SharedStruct.Type({lock: SharedStruct.ref, $seq:SharedStruct.int32}, "Cond");
-	const $seq = Cond.$seq;
-	const $index = _Lock.$index;
+        const Cond = SharedStruct.Type("Cond", {lock: SharedStruct.ref, $seq:SharedStruct.int32});
+        const $seq = Cond.$seq;
+        const $index = _Lock.$index;
 
-	Cond.prototype.wait =
-	    function () {
-		const loc = this._base + $seq;
-		const seq = Atomics.load(_iab, loc);
-		const lock = this.lock;
-		const index = lock._base + $index;
-		lock.unlock();
-		var r = Atomics.futexWait(_iab, loc, seq, Number.POSITIVE_INFINITY);
-		lock.lock();
-	    };
+        Cond.prototype.wait =
+            function () {
+                const loc = this._base + $seq;
+                const seq = Atomics.load(_iab, loc);
+                const lock = this.lock;
+                const index = lock._base + $index;
+                lock.unlock();
+                var r = Atomics.futexWait(_iab, loc, seq, Number.POSITIVE_INFINITY);
+                lock.lock();
+            };
 
-	Cond.prototype.wake =
-	    function () {
-		const loc = this._base + $seq;
-		Atomics.add(_iab, loc, 1);
-		Atomics.futexWake(_iab, loc, 1);
-	    };
+        Cond.prototype.wake =
+            function () {
+                const loc = this._base + $seq;
+                Atomics.add(_iab, loc, 1);
+                Atomics.futexWake(_iab, loc, 1);
+            };
 
-	Cond.prototype.wakeAll =
-	    function () {
-		const loc = this._base + $seq;
-		Atomics.add(_iab, loc, 1);
-		// Optimization opportunity: only wake one, and requeue the others
-		// (in such a way as to obey the locking protocol properly).
-		Atomics.futexWake(_iab, loc, 65535);
-	    };
+        Cond.prototype.wakeAll =
+            function () {
+                const loc = this._base + $seq;
+                Atomics.add(_iab, loc, 1);
+                // Optimization opportunity: only wake one, and requeue the others
+                // (in such a way as to obey the locking protocol properly).
+                Atomics.futexWake(_iab, loc, 65535);
+            };
 
-	return Cond;
+        return Cond;
     })();

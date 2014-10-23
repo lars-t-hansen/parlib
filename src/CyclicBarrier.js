@@ -24,7 +24,8 @@ var CyclicBarrier =
 	"use strict";
 
 	const CyclicBarrier =
-	    SharedStruct.Type({_lock:    SharedStruct.ref,     // Guards the critical section
+	    SharedStruct.Type("CyclicBarrier",
+			      {_lock:    SharedStruct.ref,     // Guards the critical section
 			       _cond:    SharedStruct.ref,     // Cond on _lock
 			       _seq:     SharedStruct.atomic_int32,   // Next sequence number to use
 			       _parties: SharedStruct.int32,   // Number of parties or -1 if reset
