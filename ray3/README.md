@@ -20,10 +20,29 @@ ray2 with the same feature set (0.8s).
 
 Reasons why it could be slow:
 
-  - slow object reconstruction protocol (allocation, general overhead)
+  - Slow object reconstruction protocol (allocation, general overhead)
 
-  - polymorphism and bailouts in the jitted code because some
+    There are 480000 pixels and 162 primitive objects in the scene.
+    Each primitive object contains at least two (material + center)
+    but sometimes four (material + vertices) other objects.  Suppose
+    on average 81 objects have to be visited and on average there are
+    2.5 subobjects, then we should be creating at a minimum
+    480000*81*2.5 = 97 million objects, just for the simple scene.
+    Still, seems like small potatoes.
+
+    And yet, a simple 1K-element per-worker reified-object cache has
+    amazing hit ratios (well above 99.9%) and reduces the running time
+    to 18.9s.
+
+    The culprit is likely more initialization (with the hasOwnProperty
+    machinery and the fromRef song and dance) than allocation and GC.
+
+  - General overhead, because there are several lookups and levels of
+    indirection to read each field, even ignoring method call
+    overhead.
+
+  - Polymorphism and bailouts in the jitted code because some
     structures are proper JS objects and others are weird things with
-    getters and setters
+    getters and setters.
 
-  - bugs, undiagnosed
+  - Bugs, undiagnosed.
