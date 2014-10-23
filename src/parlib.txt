@@ -185,10 +185,10 @@ Special field names trigger special behavior in the type system:
 Odds and ends
 -------------
 If a shared object is sent to another worker and then back to the
-originator it will usually come back as a JS object that has a
-different identity (though it references the same underlying shared
-memory).  To compare two shared objects a and b for shared-memory
-identity, use this:
+originator it may come back as a JS object that has a different
+identity (though it references the same underlying shared memory).  To
+compare two shared objects a and b for shared-memory identity, use
+this:
 
       SharedHeap.equals(a,b)
 

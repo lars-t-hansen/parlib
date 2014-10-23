@@ -13,18 +13,15 @@
  *  - Shared database of types, lookup by brand, check equivalence, not
  *    a magic order-of-definition as now.
  *
- *  - The fromRef machinery is probably out of date: it may not be
- *    needed in its current form, and the null check in fromRef is
- *    redundant because all callers use it.  Really fromRef need not
- *    be part of the exposed protocol (to the extent it really is).
- *
  *  - Storage management.
+ *
+ *  - Allow structures more than 12 words in size.
  *
  *  - More atomic operations (sub on int/float; and, or, xor on int)
  *
  *  - A string type.
  *
- *  - Locks and condition vars can probably be faster.
+ *  - An array-of-inline-structures type.
  */
 
 /* Implementation details.
@@ -34,32 +31,22 @@
  * Every implementation of a 'struct' or 'array' type must conform to
  * the following:
  *
- *  - the type's constructor must have these properties:
- *    - _desc
- *      The type's descriptor bits (int32 for now, see below).
- *
- *    - fromRef(r)
- *      Creates a new front object with the given shared memory
- *      address r, initializes the object but not the shared memory.
- *      Not transferable.
- *
- *  - the instance must have these properties:
- *    - _base
- *      The shared-memory address (within _iab) of the object header
+ *  - the instance must have a "_base" property which is the index
+ *    within _iab of the object header.
  *
  * Every implementation of an 'array' type must additionally conform
  * to the following:
  *
- *  - the prototype or instance must have these properties:
- *    - bytePtr()
- *      The byte offset within the heap of the first data elemement
+ *  - the prototype or instance must have a "bytePtr()" method
+ *    which returns the byte offset within the heap of the first
+ *    data elemement.
  *
  *
  * Shared memory object layout.
  *
  * Each object maps to an even number of words in the integer mapping
- * of the heap memory ("_iab" in the following).  The low bit of
- * an object address is zero.
+ * of the heap memory ("_iab" in the following).  The low bit of an
+ * object address is zero.
  *
  * The first two words of an object are a descriptor with the
  * following fields:
@@ -71,7 +58,7 @@
  *   +----------------+------------------+
  *    hi                               lo
  *
- * 0 is always zero (making the descriptor a nonnegative int32 value)
+ * 0 is always zero (making the word a nonnegative int32 value)
  *
  * B are three tag bits:
  *   000  plain-ish object
@@ -79,8 +66,8 @@
  *   xxx  others unallocated
  *
  * D is an index in the type descriptor table _typetable, where there
- * will be a constructor with a fromRef method that converts a raw
- * pointer back to an object.
+ * will be a constructor that is used to convert a raw pointer back to
+ * an object.
  *
  * U is unused, it must be zero.
  *
@@ -109,14 +96,15 @@
  *   F must contain a single two-bit field signifying the type value,
  *   as above.
  *
- *   The word after the two-word header contains the byte count of the
- *   array payload.
+ *   The word after the two-word header contains the element count of
+ *   the array payload.
  *
- *   The payload begins on the word after that (8-byte aligned), and
- *   the SharedTArray's bufferOffset will reflect that.
+ *   The payload begins on the word after the element count (and extra
+ *   alignment, for float64 arrays), and the SharedTArray's
+ *   bufferOffset will reflect that.
  *
  * This layout is naive, it does not allow structures of arrays or
- * arrays of structures.
+ * arrays of structures, and it allows only for small structures.
  *
  * 
  * Shared heap layout.
@@ -136,7 +124,7 @@
  *   4: sharedVar0: starts here
  *   5: ...
  *   
- * The next-free pointer should be kept 8-byte aligned (2 words).
+ * The next-free pointer must be kept 8-byte aligned (2 words).
  */
 
 const _ref = 1;         // Descriptor for a shared object reference field
@@ -161,8 +149,8 @@ const _sharedVar_loc = 4;
  *
  * There are two construction paths for shared objects: the regular
  * new T() path, which allocates shared storage and creates a front
- * object for it, and the T.fromRef() path, which creates a front
- * object given an existing storage reference.
+ * object for it, and the path used by _ObjectFromPointer(), which
+ * creates a front object given an existing storage reference.
  *
  * The job of the constructor is as follows:
  *
@@ -174,11 +162,11 @@ const _sharedVar_loc = 4;
  *     constructor should allocate shared storage, initialize its
  *     _base reference with the shared storage pointer.
  *
- * SharedHeap.alloc(d, obj) takes a descriptor d and an object obj,
+ * SharedHeap._alloc(d, obj) takes a descriptor d and an object obj,
  * allocates shared storage, installs the descriptor in the storage,
  * and sets obj._base to the shared memory address.  It returns nothing.
  *
- * SharedHeap.allocArray(n, d) takes a number of elements n and a
+ * SharedHeap._allocArray(n, d) takes a number of elements n and a
  * descriptor d and allocates shared storage, installs the descriptor
  * and number of elements in the storage, and returns the shared
  * object base address.
@@ -186,37 +174,11 @@ const _sharedVar_loc = 4;
 
 const _noalloc = {};            // A cookie used in object construction.
 
-/*
- * NOTE: It must be possible to create shared-memory /types/ before registering the heap,
- * since those types will be created as part of the bootstrap process.  So creating a type can't store things
- * in shared memory eagerly.  We can store things in shared memory when the first object of a type is created.
- * (If we have to)
- *
- *
- * 
- *
- * A "shared object" is an index range within the array, wrapped
- * within a JS object.  The JS object places an interpretation on the
- * range of values.  Each shared object type has a constructor, which
- * allocates a new object, an export method that returns a low + length
- * pair (really, two integers) and an import static method that
- * reconstitutes the object from that range.
- *
- * Hm, that's deeply unsafe.
- *
- * Allocation is normally in a local heap (because global allocation
- * is expensive).  Deallocation is explicit for now.
- *
- * By and large, for things to work out well, *all* non-constant or
- * worker-variant information associated with a shared object should
- * be stored in shared memory, not on individual local objects.
- */
-
 var _sab;                       // SharedArrayBuffer used for the heap
 var _iab;                       // SharedInt32Array covering the _sab
 var _dab;                       // SharedFloat64Array covering the _sab
 
-const _typetable = {};          // Local map from integer to constructor
+const _typetable = [];          // Local map from integer to constructor
 var _typetag = 1;               // No type has tag 0
 
 _typetable[0] =                 // Provide a sane handler for tag 0
@@ -269,7 +231,7 @@ SharedHeap.setup =
             break;
         case "slave":
             SharedHeap.pid = Atomics.add(_iab, 3, 1);
-            sharedVar0 = SharedVar.ref.fromRef(_sharedVar_loc);
+            sharedVar0 = _ObjectFromPointer(_sharedVar_loc);
             break;
         default:
             throw new Error("Invalid shared heap initialization specification: " + whoami);
@@ -281,7 +243,7 @@ SharedHeap.equals =
         return (a && b) ? a._base === b._base : a === null && b === null;
     };
 
-SharedHeap.allocStorage =
+SharedHeap._allocStorage =
     function (nwords) {
         // For now, use a global free list in shared memory and
         // allocate from it with synchronization.
@@ -299,11 +261,11 @@ SharedHeap.allocStorage =
         }
     };
 
-SharedHeap.alloc =
+SharedHeap._alloc =
     function (d, tag, obj) {
         // TODO: storage management / GC support.
         var nwords = (2+(d&15)+1) & ~1;
-        var v = SharedHeap.allocStorage(nwords);
+        var v = SharedHeap._allocStorage(nwords);
         var iab = _iab;
         obj._base = v;
         iab[v] = d;
@@ -311,82 +273,95 @@ SharedHeap.alloc =
         return v;
     };
 
-SharedHeap.allocArray =
-    function (n, tag, d) {
+SharedHeap._allocArray =
+    function (nelem, tag, d) {
         // TODO: storage management / GC support.
         var nwords = 3;
         var nbytes;
         switch ((d >> 4) & 3) {
         case _i32:
         case _ref:
-            nwords = (nwords+n+1) & ~1;
-            nbytes = n*4;
+            nwords = (nwords+nelem+1) & ~1;
             break;
         case _f64:
-            nwords += 1 + 2*n;
-            nbytes = n*8;
+            nwords += 1 + 2*nelem;
             break;
         }
-        var v = SharedHeap.allocStorage(nwords);
+        var v = SharedHeap._allocStorage(nwords);
         var iab = _iab;
         iab[v] = d;
         iab[v+1] = tag;
-        iab[v+2] = nbytes;
+        iab[v+2] = nelem;
         return v;
     };
+
+// This local object cache is valid in the presence of GC if it is
+// cleared on GC, and in the presence of manual storage management if
+// freed objects are purged from the cache when they are freed.
+
+const _fromref = Array.build(1024, (x) => 0);
+const _fromobj = Array.build(1024, (x) => null);
+
+function _ObjectFromPointer(p) {
+    if (p == 0)
+	return null;
+
+    var k = (p >> 3) & 1023;
+    if (_fromref[k] == p)
+        return _fromobj[k];
+
+    var constructor = _typetable[_iab[p+1] & 65535];
+    if ((_iab[p] >> 28) == 1)
+	var obj = new constructor(_noalloc, p, _iab[p+2]);
+    else {
+        var obj = new constructor(_noalloc);
+        obj._base = p;
+    }
+    _fromref[k] = p;
+    _fromobj[k] = obj;
+    return obj;
+};
 
 
 //////////////////////////////////////////////////////////////////////
 //
 // Primitive arrays.
 
-// TODO: hide this
-
-function SharedArrayConstructor(d, constructor, typetag) {
-    "use strict";
-
-    return function (_a1, _a2, _a3) {
-        var p;
-        var nelements;
-        if (_a1 === _noalloc) {
-            p = _a2;
-            nelements = _a3;
-            if (d != _iab[p])
-                throw new Error("Bad reference: unmatched descriptor: wanted " + d + ", got " + _iab[p] + " @" + p);
-        }
-        else {
-            nelements = _a1;    // _a2 and _a3 are not supplied
-            p = SharedHeap.allocArray(nelements, typetag, d);
-        }
-        var a = new constructor(_sab, (d == _array_float64_desc ? 16 : 12)+(p*4), nelements);
-        a._base = p;
-        // A SharedArray.ref is currently just a SharedInt32Array, we don't want
-        // to place these methods on the prototype.
-        if (d == _array_ref_desc) {
-            a.get = function (index) {
-                var p = a[index];
-                if (p == 0) return null;
-                return _typetable[_iab[p+1] & 65535].fromRef(p);
-            };
-            a.put = function (x, v) { a[x] = v ? v._base : 0; };
-        }
-        return a;
-    };
-}
-
 const SharedArray = {};
 
 (function () {
+    "use strict";
+
+    function SharedArrayConstructor(d, constructor, typetag) {
+	return function (_a1, _a2, _a3) {
+            var p;
+            var nelements;
+            if (_a1 === _noalloc) {
+		p = _a2;
+		nelements = _a3;
+		if (d != _iab[p])
+                    throw new Error("Bad reference: unmatched descriptor: wanted " + d + ", got " + _iab[p] + " @" + p);
+            }
+            else {
+		nelements = _a1;    // _a2 and _a3 are not supplied
+		p = SharedHeap._allocArray(nelements, typetag, d);
+            }
+            var a = new constructor(_sab, (d == _array_float64_desc ? 16 : 12)+(p*4), nelements);
+            a._base = p;
+            // A SharedArray.ref is currently just a SharedInt32Array, we don't want
+            // to place these methods on the prototype.
+            if (d == _array_ref_desc) {
+		a.get = function (index) { return _ObjectFromPointer(a[index]); }
+		a.put = function (x, v) { a[x] = v ? v._base : 0; };
+            }
+            return a;
+	};
+    }
+
     var itag = _typetag++;
     SharedArray.int32 =
         SharedArrayConstructor(_array_int32_desc, SharedInt32Array, itag);
     _typetable[itag] = SharedArray.int32;
-    SharedArray.int32._desc = _array_int32_desc;
-    SharedArray.int32.fromRef =
-        function (r) {
-            if (r == 0) return null;
-            return new SharedArray.int32(_noalloc, r, _iab[r+2]/4);
-        };
     SharedInt32Array.prototype.bytePtr =
         function () {
             return this._base*4 + 12;
@@ -396,24 +371,12 @@ const SharedArray = {};
     SharedArray.ref =
         SharedArrayConstructor(_array_ref_desc, SharedInt32Array, rtag);
     _typetable[rtag] = SharedArray.ref;
-    SharedArray.ref._desc = _array_ref_desc;
-    SharedArray.ref.fromRef =
-        function (r) {
-            if (r == 0) return null;
-            return new SharedArray.ref(_noalloc, r, _iab[r+2]/4);
-        };
     // bytePtr is inherited from SharedArray.int32
 
     var ftag = _typetag++;
     SharedArray.float64 =
         SharedArrayConstructor(_array_float64_desc, SharedFloat64Array, ftag);
     _typetable[ftag] = SharedArray.float64;
-    SharedArray.float64._desc = _array_float64_desc;
-    SharedArray.float64.fromRef =
-        function (r) {
-            if (r == 0) return null;
-            return new SharedArray.float64(_noalloc, r, _iab[r+2]/8);
-        };
     SharedFloat64Array.prototype.bytePtr =
         function () {
             return this._base*4 + 16; // *4 even for double arrays, but also padding
@@ -439,57 +402,16 @@ SharedStruct.atomic_ref = {toString:() => "shared atomic ref"};
 //
 // The prototype initially holds just the type's tag.  The tag is just
 // a string.
-//
-// TODO: hide this function.
 
-function SharedObjectProto(tag) {
+function _SharedObjectProto(tag) {
     this._tag = tag;
 }
 
 // All shared struct objects' prototypes share this prototype object.
 
-SharedObjectProto.prototype = {
+_SharedObjectProto.prototype = {
     toString: function () { return "Shared " + this._tag; } // _tag on the struct objects' prototypes
 };
-
-// Construct a fromRef function for a type, given its constructor.
-//
-// TODO: hide this function.
-
-// This local object cache is valid in the presence of GC and even
-// manual storage management if it is cleared on GC or whenever a
-// freed object is reused, or if a freed object is removed from the
-// cache.
-
-const _fromref = Array.build(1024, (x) => 0);
-const _fromobj = Array.build(1024, (x) => null);
-
-var _hits = 0;
-var _misses = 0;
-
-function SharedObjectFromReffer(constructor) {
-    "use strict";
-
-    var d = constructor._desc;
-    if (!d)
-        throw new Error("Bad constructor: no _desc: " + constructor);
-    return function (ref) {
-        if (ref == 0) return null;
-        if (_iab[ref] != d)
-            throw new Error("Bad reference: unmatched descriptor: wanted " + d + ", got " + _iab[ref]);
-        var k = (ref >> 3) & 1023;
-        if (_fromref[k] == ref) {
-            //_hits++;
-            return _fromobj[k];
-        }
-        var l = new constructor(_noalloc);
-        l._base = ref;
-        _fromref[k] = ref;
-        _fromobj[k] = l;
-        //_misses++;
-        return l;
-    };
-}
 
 SharedStruct.Type =
     function(tagname, fields) {
@@ -634,10 +556,7 @@ SharedStruct.Type =
                 var a = true;
                 if (i.charAt(0) != '$') {
                     acc.push([i, 
-                              `function() {
-                                  const p = _iab[this._base + ${loc}];
-                                  if (p == 0) return null;
-                                  return _typetable[_iab[p+1] & 65535].fromRef(p); }`,
+                              `function() { return _ObjectFromPointer(_iab[this._base + ${loc}]); }`,
                               `function(v) { return _iab[this._base + ${loc}] = (v ? v._base : 0); }`]);
                     if (i.charAt(0) != '_') {
                         init.push(`var tmp = _v.${i}; _iab[this._base + ${loc}] = (tmp ? tmp._base : 0)`); // undefined => nan => 0
@@ -654,18 +573,13 @@ SharedStruct.Type =
                 if (i.charAt(0) == '$')
                     throw new Error("Private atomic fields are silly");
                 acc.push([i,
-                          `function() { 
-                              const p = Atomics.load(_iab, this._base + ${loc});
-                              if (p == 0) return null;
-                              return _typetable[_iab[p+1] & 65535].fromRef(p); }`,
+                          `function() { return _ObjectFromPointer(Atomics.load(_iab, this._base + ${loc})) }`,
                           `function(v) { return Atomics.store(_iab, this._base + ${loc}, (v ? v._base : 0)) }`]);
                 meth.push([`compareExchange_${i}`,
                            `function(oldval,newval) {
                                var o = oldval ? oldval._base : 0;
                                var n = newval ? newval._base : 0;
-                               var p = Atomics.compareExchange(_iab, this._base + ${loc}, o, n);
-                               if (p == 0) return null;
-                               return _typetable[_iab[p+1] & 65535].fromRef(p);
+                               return _ObjectFromPointer(Atomics.compareExchange(_iab, this._base + ${loc}, o, n));
                            }`]);
                 if (i.charAt(0) != '_') {
                     init.push(`var tmp = _v.${i}; _iab[this._base + ${loc}] = (tmp ? tmp._base : 0)`);
@@ -725,14 +639,12 @@ SharedStruct.Type =
                 "use strict";
                 var c = function (_v) {
                     if (_v === _noalloc) return;
-                    SharedHeap.alloc(${desc}, ${typetag}, this);
+                    SharedHeap._alloc(${desc}, ${typetag}, this);
                     ${ainits}
                     ${finits}
                 }
-                c._desc = ${desc};
-                c.fromRef = SharedObjectFromReffer(c);
                 ${cprops}
-                var p = new SharedObjectProto(\'${tagname}\');
+                var p = new _SharedObjectProto(\'${tagname}\');
                 ${accs}
                 ${meths}
                 c.prototype = p;
