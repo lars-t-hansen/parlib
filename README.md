@@ -20,3 +20,5 @@ ray/ is a sequential ray tracer.
 ray2/ is a parallel ray tracer derived from the code in ray/.  Each
 worker has a private copy of the scene graph.
 
+ray3/ is a parallel ray tracer that keeps the scene graph in shared
+memory.
