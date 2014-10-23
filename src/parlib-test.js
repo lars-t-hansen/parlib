@@ -20,6 +20,7 @@ testIntArray();
 testFloatArray();
 testAdd();
 testTypes();
+testStrings();
 
 function testLock() {
     print("testLock");
@@ -107,4 +108,20 @@ function testTypes() {
     assertEq(obj.f, 6.28);
     assertEq(obj.r != null, true);
     assertEq(SharedHeap.equals(a, obj.r), true);
+}
+
+function testStrings() {
+    print("testStrings");
+    var a = new SharedString("hello there");
+    var b = new SharedString("goodbye now");
+    var c = new SharedString("hello there");
+    var d = new SharedString("goodbye no");
+    assertEq(a.length, 11);
+    assertEq(b.length, 11);
+    assertEq(SharedString.compare(a,c), 0);
+    assertEq(SharedString.compare(b,d), 1);
+    assertEq(SharedString.compare(d,b), -1);
+    assertEq(a.charAt(4), "o");
+    assertEq(a.charCodeAt(4), 111);
+    assertEq(a.extract(), "hello there");
 }

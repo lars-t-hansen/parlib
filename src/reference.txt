@@ -1,0 +1,264 @@
+Overall usage
+-------------
+
+All workers must include parlib.js, and then optionally any of the
+utility files (CyclicBarrier, BoundedBuffer, etc).
+
+One worker must act as the master: allocate the shared memory,
+initialize the shared heap as "master", and pass the memory to the
+other workers.  The other workers must initialize the shared heap as
+"slave".
+
+A "shared memory object" is a piece of shared memory of known layout
+that has one or more "front objects" in each worker's private heap.
+The front objects are lightweight and are created on demand when
+reference values are read out of the shared heap.  Accesses to the
+front object are generally translated as accesses to the underlying
+shared memory, as described below.  Front objects are subject to GC
+in the normal manner.
+
+
+Keep in mind:
+
+There is no recycling of shared-memory objects at present, neither
+manual or automatic.  Size your shared heap accordingly.  On the other
+hand, the only objects that appear in the shared heap are those that
+are allocated explicitly by you: there is little "system" allocation.
+
+The front objects appear to the JS program as normal JS objects.
+They are at present extensible, but it's generally not a good idea to
+store non-shared attributes on those objects.
+
+Blocking on the browser's main thread, even for short periods, will
+tend to deadlock the browser.  It is better for one of the slaves to
+act as a coordinator and communicate with the main thread with posted
+messages.
+
+At this time, ALL WORKERS MUST EXECUTE EXACTLY THE SAME STRUCTURE TYPE
+DEFINITIONS IN EXACTLY THE SAME ORDER.  This restriction is the result
+of a technical limitation that will be removed soon.
+
+There are useful examples in ../mbrot* and ../ray*.
+
+
+SharedHeap
+----------
+
+SharedHeap.allocate(k)
+  Return a new SharedArrayBuffer of length at least k.  The length
+  may be larger than k to honor misc internal constraints in SpiderMonkey.
+
+SharedHeap.setup(sab, who)
+  Initialize the shared heap within a worker.  If who is "master"
+  then this is the first worker, and basic heap data such as allocation
+  pointers and bootstrapping variables will be initialized within the
+  shared memory.  If who is "slave" such initialization is assumed already
+  to have happened.
+
+  The shared variable sharedVar0 (see below) is created by setup().
+
+Sharedheap.equals(a, b)
+  A and b must be null or shared objects.  If a and b are either both
+  null or both objects whose memory addresses are the same then return
+  true, otherwise return false.
+
+
+SharedArray
+-----------
+
+SharedArrays are reference types.
+
+SharedArray.<type> are exposed to JS as SharedTypedArrays and should
+have excellent performance for common uses; they also have the full
+SharedTypedArray API, not explicitly mentioned below.
+
+new SharedArray.<type>(<length value>)
+  Create a new SharedArray of the given <type>, which can be int32,
+  float64, or ref.  The array has the given length.
+
+<SharedArray>.length
+  Return the number of elements in the array.
+
+<SharedArray>.bytePtr()
+  Return the global memory address of the start of the first element
+  of the array; occasionally useful to work around API limitations,
+  eg for bulk copy.
+
+<SharedArray>[x]
+  Return the xth element in the array (semantics as for SharedTypedArray).
+  Do not use this on SharedArray.ref types, use get() instead.
+
+<SharedArray>[x] = v
+  Update the xth element in the array (semantics as for SharedTypedArray)
+  Do not use this on SharedArray.ref types, use set() instead.
+
+<SharedArray.ref>.get(x)
+  Return the xth element in the array as an object.
+
+<SharedArray.ref>.set(x, v)
+  Set the xth element in the array to the shared object (or null value) v.
+
+
+SharedStruct
+------------
+
+SharedStructs are reference types.
+
+new SharedStruct.Type(tag, fields)
+  Create a new structure /type/ with the given (globally unique) tag name
+  and the fields specified.  The fields are an object literal where each
+  own property name specifies the field name and the value of that
+  property specifies the field type, one of the following values:
+
+    SharedStruct.int32
+    SharedStruct.atomic_int32
+    SharedStruct.float64
+    SharedStruct.atomic_float64
+    SharedStruct.ref
+    SharedStruct.atomic_ref
+
+  Field names starting with '$' or '_' are special, as detailed later.
+  Notably, fields whose name start with '$' cannot be atomic.
+
+  Each new type has a fresh prototype object; methods stored in that
+  object are available to all instances of the type in the normal
+  manner.
+
+<SharedStruct type>.<$fld>
+  For each field name '$fld' in the fields specification the constructor
+  receives a property of that field name whose value is the word offset
+  of the field within the structure.  Low-level code uses this, see eg 
+  the Lock type.
+
+new <SharedStruct type>(inits)
+  Create a new structure instance from the given type.  The inits is an
+  object with properties for fields of the type whose names do not start
+  with '$' or '_'.  Absent fields will be initialized to zero or null,
+  as will all fields whose name starts with '$' or '_'.
+
+<SharedStruct instance>.<field name>
+  A getter/setter pair for the given field, unless the field name
+  starts with '$'.
+
+  For the atomic field types, reading and writing is atomic and
+  synchronizing.
+
+  Reference fields are returned as shared objects when read, and
+  setting a reference field requires null or a shared object value.
+
+<SharedStruct instance>.add_<field name>(n)
+  An accessor for atomically adding n to an atomic_int32 or atomic_float64
+  field.  Returns the old value of the field.
+
+<SharedStruct instance>.compareExchange_<field name>(oldval, newval)
+  An accessor for atomically compare-and-exchanging the value of an
+  atomic field (of any type).  Returns the old value of the field.
+
+  If the field is an atomic_ref field then oldval, newval, and the
+  returned values must be null or shared object values.
+
+
+SharedString
+------------
+
+SharedStrings are reference types.
+
+new SharedString(<string value>)
+  Allocate and initialize a shared string.
+
+SharedString.compare(<SharedString> a, <SharedString> b)
+  Compare the strings and return -1 if a < b, 0 if a == b,
+  or 1 if a > b.
+
+<SharedString>.length
+  Return the length of the string.
+
+<SharedString>.extract()
+  Return the characters of the string as a native JS string.
+
+<SharedString>.charAt(i)
+  If i is an integer within the range of the string return the
+  ith character.  Otherwise return "".
+
+<SharedString>.charCodeAt(i)
+  If i is an integer within the range of the string return the
+  character value of the ith character.  Otherwise return NaN.
+
+
+SharedVar
+---------
+
+A SharedVar value is an object with no exposed properties, it holds a
+single value.
+
+new SharedVar.<type>()
+  Construct a SharedVar object of the given type.  There are three types:
+
+   SharedVar.int32
+   SharedVar.float64
+   SharedVar.ref
+
+<SharedVar instance>.get()
+  Return the value of the variable.  This is an atomic, synchronizing
+  operation.
+
+<SharedVar instance>.put(v)
+  Update the value of the variable.  This is an atomic, synchronizing
+  operation.
+
+The predefined global sharedVar0 holds a reference to a SharedVar.ref
+that is shared among all workers.
+
+
+Lock
+----
+
+A Lock value is an object with no exposed properties.  It acts as a
+simple non-recursive mutex.
+
+new Lock()
+  Create a new lock.
+
+<Lock instance>.lock()
+  Lock the lock, and block if the lock is already held.
+
+<Lock instance>.unlock()
+  Unlock the lock.
+
+<Lock instance>.invoke(thunk)
+  Call thunk while the lock is held, always unlock it when the call
+  returns even if by an exception.
+
+
+Cond
+----
+
+A Cond value is an object with one exposed property, "lock".  It is a
+condition variable for communicating among workers.
+
+new Cond({lock:l})
+  Create a new Cond and associate it with the lock l.
+
+Cond.wait()
+  The lock must be held when this call is made.  Atomically unlock the lock
+  and block on the condition, and reacquire the lock when woken.
+
+Cond.wake()
+  Unblock one waiter.  The lock must be held when this call is made.
+
+Cond.wakeAll()
+  Unblock all waiters.  The lock must be held when this call is made.
+
+
+CyclicBarrier
+-------------
+
+A simple reusable barrier synchronization mechanism.  Documented in
+CyclicBarrier.js.
+
+
+BoundedBuffer
+-------------
+
+A multi-producer multi-consumer object communication channel.
+Documented in BoundedBuffer.js.

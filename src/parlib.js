@@ -11,7 +11,8 @@
 /*
  * TODO:
  *  - Shared database of types, lookup by brand, check equivalence, not
- *    a magic order-of-definition as now.
+ *    a magic order-of-definition as now.  (Would be helpful to have
+ *    shared strings for this.)
  *
  *  - Storage management.
  *
@@ -19,9 +20,17 @@
  *
  *  - More atomic operations (sub on int/float; and, or, xor on int)
  *
+ *  - Utility methods, such as init(x) on SharedVar and init(xs) on
+ *    arrays.
+ *
  *  - A string type.
  *
  *  - An array-of-inline-structures type.
+ *
+ *  - Generally move the design closer to that of TypedObject.
+ *
+ *  - Performance can be pretty awful, see ../ray3/README.md for more
+ *    details.
  */
 
 /* Implementation details.
@@ -63,6 +72,7 @@
  * B are three tag bits:
  *   000  plain-ish object
  *   001  array
+ *   010  string
  *   xxx  others unallocated
  *
  * D is an index in the type descriptor table _typetable, where there
@@ -103,6 +113,16 @@
  *   alignment, for float64 arrays), and the SharedTArray's
  *   bufferOffset will reflect that.
  *
+ * If B=010 then the value is a "string" type:
+ *
+ *   C must be 0
+ *
+ *   F holds the number of characters in the string
+ *
+ *   Each halfword after the two-word header holds a character of the
+ *   string, in order.
+ *   
+ *
  * This layout is naive, it does not allow structures of arrays or
  * arrays of structures, and it allows only for small structures.
  *
@@ -111,9 +131,9 @@
  *
  * There is one global SharedArrayBuffer, available through global
  * '_sab'.  We map SharedTypedArrays onto this for administration
- * purposes, these are available through '_iab' (int32) and '_dab'
- * (float64).  All units of allocation are in words of '_iab', all
- * addresses are indices in '_iab'.
+ * purposes, these are available through '_iab' (int32), '_cab'
+ * (uint16), and '_dab' (float64).  All units of allocation are in
+ * words of '_iab', all addresses are indices in '_iab'.
  *
  * The low words of '_iab' are allocated as follows:
  *
@@ -139,6 +159,8 @@ const _var_int32_desc = (_i32 << 4) | 1;                               // One wo
 const _var_float64_desc = (_f64 << 8) | (_f64 << 6) | (_i32 << 4) | 3; // Three words: spinlock, then an aligned double
 const _var_ref_desc = (_ref << 4) | 1;                                 // One word: the value
 
+const _string_desc = (2 << 28);	                                       // Note F contains the length
+
 const _lock_desc = (_i32 << 4) | 1;                                    // One word: the lock word
 
 const _allocptr_loc = 1;
@@ -162,7 +184,7 @@ const _sharedVar_loc = 4;
  *     constructor should allocate shared storage, initialize its
  *     _base reference with the shared storage pointer.
  *
- * SharedHeap._alloc(d, obj) takes a descriptor d and an object obj,
+ * SharedHeap._allocObject(d, obj) takes a descriptor d and an object obj,
  * allocates shared storage, installs the descriptor in the storage,
  * and sets obj._base to the shared memory address.  It returns nothing.
  *
@@ -176,6 +198,7 @@ const _noalloc = {};            // A cookie used in object construction.
 
 var _sab;                       // SharedArrayBuffer used for the heap
 var _iab;                       // SharedInt32Array covering the _sab
+var _cab;			// SharedUint16Array covering the _sab
 var _dab;                       // SharedFloat64Array covering the _sab
 
 const _typetable = [];          // Local map from integer to constructor
@@ -217,6 +240,7 @@ SharedHeap.setup =
     function (sab, whoami) {
         _sab = sab;
         _iab = new SharedInt32Array(sab);
+	_cab = new SharedUint16Array(sab);
         _dab = new SharedFloat64Array(sab);
         switch (whoami) {
         case "master":
@@ -261,13 +285,23 @@ SharedHeap._allocStorage =
         }
     };
 
-SharedHeap._alloc =
+SharedHeap._allocObject =
     function (d, tag, obj) {
         // TODO: storage management / GC support.
         var nwords = (2+(d&15)+1) & ~1;
         var v = SharedHeap._allocStorage(nwords);
         var iab = _iab;
         obj._base = v;
+        iab[v] = d;
+        iab[v+1] = tag;
+        return v;
+    };
+
+SharedHeap._allocString =
+    function (nelem, tag, d) {
+	var nwords = 2 + (((nelem + 3) & ~3) >> 1);
+        var v = SharedHeap._allocStorage(nwords);
+        var iab = _iab;
         iab[v] = d;
         iab[v+1] = tag;
         return v;
@@ -297,7 +331,7 @@ SharedHeap._allocArray =
 
 // This local object cache is valid in the presence of GC if it is
 // cleared on GC, and in the presence of manual storage management if
-// freed objects are purged from the cache when they are freed.
+// objects are purged from the cache when they are freed.
 
 const _fromref = Array.build(1024, (x) => 0);
 const _fromobj = Array.build(1024, (x) => null);
@@ -311,11 +345,18 @@ function _ObjectFromPointer(p) {
         return _fromobj[k];
 
     var constructor = _typetable[_iab[p+1] & 65535];
-    if ((_iab[p] >> 28) == 1)
-	var obj = new constructor(_noalloc, p, _iab[p+2]);
-    else {
+    switch (_iab[p] >> 28) {
+    case 0:
         var obj = new constructor(_noalloc);
         obj._base = p;
+	break;
+    case 1:
+	var obj = new constructor(_noalloc, p, _iab[p+2]);
+	break;
+    case 2:
+	var obj = new constructor(_noalloc);
+	obj._base = p;
+	break;
     }
     _fromref[k] = p;
     _fromobj[k] = obj;
@@ -325,7 +366,7 @@ function _ObjectFromPointer(p) {
 
 //////////////////////////////////////////////////////////////////////
 //
-// Primitive arrays.
+// Arrays are reference types.
 
 const SharedArray = {};
 
@@ -383,9 +424,10 @@ const SharedArray = {};
         };
 })();
 
+
 //////////////////////////////////////////////////////////////////////
 //
-// Type constructor for structure types.
+// Structures are reference types.
 
 const SharedStruct = {};
 
@@ -639,7 +681,7 @@ SharedStruct.Type =
                 "use strict";
                 var c = function (_v) {
                     if (_v === _noalloc) return;
-                    SharedHeap._alloc(${desc}, ${typetag}, this);
+                    SharedHeap._allocObject(${desc}, ${typetag}, this);
                     ${ainits}
                     ${finits}
                 }
@@ -655,6 +697,85 @@ SharedStruct.Type =
         _typetable[typetag] = c;
         return c;
     };
+
+
+//////////////////////////////////////////////////////////////////////
+//
+// Strings are reference types.  For now they are immutable.
+
+const _string_tag = _typetag++;
+
+const SharedString =
+    function (s) {
+	if (s === _noalloc) return;
+	if (typeof s != "string")
+	    throw new Error("Initializing string required");
+	var len = s.length;
+	var p = SharedHeap._allocString(len, _string_tag, _string_desc | (len << 4)); 
+	this._base = p;
+	var cp = (p+2)*2;
+	for ( var i=0 ; i < len ; i++ )
+	    _cab[cp++] = s.charCodeAt(i);
+    };
+
+_typetable[_string_tag] = SharedString;
+
+SharedString.compare =
+    function (a, b) {
+	var x = a._base;
+	var y = b._base;
+	if ((_iab[x] >> 28) != 2 || (_iab[y] >> 28) != 2)
+	    throw new Error("Compare only works on strings");
+	var lx = (_iab[x] >> 4) & 0xFFFFFF;
+	var ly = (_iab[y] >> 4) & 0xFFFFFF;
+	var lm = Math.min(lx, ly);
+	var px = (x+2)*2;
+	var py = (y+2)*2;
+	for ( var i=0 ; i < lm ; i++, px++, py++ ) {
+	    var v = _cab[px] - _cab[py];
+	    if (v != 0)
+		return (v < 0) ? -1 : 1;
+	}
+	if (lx == ly)
+	    return 0;
+	return (lx < ly) ? -1 : 1;
+    };
+
+SharedString.prototype.toString =
+    function () { return "SharedString " + this.extract() };
+
+SharedString.prototype.extract =
+    function () {
+	var len = this.length;
+	var s = "";
+	var cp = (this._base+2)*2;
+	for ( var i=0 ; i < len ; i++, cp++ )
+	    s += String.fromCharCode(_cab[cp]);
+	return s;
+    };
+
+SharedString.prototype.charAt =
+    function (i) {
+	var p = this._base;
+	var len = (_iab[p] >> 4) & 0xFFFFFF;
+	i = +i;
+	if (i < 0 || i >= len)
+	    return "";
+	return String.fromCharCode(_cab[(p+2)*2 + i]);
+    };
+
+SharedString.prototype.charCodeAt =
+    function (i) {
+	var p = this._base;
+	var len = (_iab[p] >> 4) & 0xFFFFFF;
+	i = +i;
+	if (i < 0 || i >= len)
+	    return NaN;
+	return _cab[(this._base+2)*2 + i];
+    };
+
+Object.defineProperties(SharedString.prototype,
+			{length: {get: function() { return (_iab[this._base] >> 4) & 0xFFFFFF }}});
 
 //////////////////////////////////////////////////////////////////////
 //
