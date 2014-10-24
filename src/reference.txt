@@ -22,8 +22,8 @@ Keep in mind:
 
 There is no recycling of shared-memory objects at present, neither
 manual or automatic.  Size your shared heap accordingly.  On the other
-hand, the only objects that appear in the shared heap are those that
-are allocated explicitly by you: there is little "system" allocation.
+hand, the objects that appear in the shared heap are those that are
+allocated explicitly by you: there is little "system" allocation.
 
 The front objects appear to the JS program as normal JS objects.
 They are at present extensible, but it's generally not a good idea to
@@ -33,10 +33,6 @@ Blocking on the browser's main thread, even for short periods, will
 tend to deadlock the browser.  It is better for one of the slaves to
 act as a coordinator and communicate with the main thread with posted
 messages.
-
-At this time, ALL WORKERS MUST EXECUTE EXACTLY THE SAME STRUCTURE TYPE
-DEFINITIONS IN EXACTLY THE SAME ORDER.  This restriction is the result
-of a technical limitation that will be removed soon.
 
 There are useful examples in ../mbrot* and ../ray*.
 
@@ -56,6 +52,10 @@ SharedHeap.setup(sab, who)
   to have happened.
 
   The shared variable sharedVar0 (see below) is created by setup().
+
+  The slaves must not be initialized until the master initialization
+  is complete.  For practical purposes, do not send the memory array
+  to the slaves until SharedHeap.setup(..., "master") has returned.
 
 Sharedheap.equals(a, b)
   A and b must be null or shared objects.  If a and b are either both
@@ -103,6 +103,12 @@ SharedStruct
 ------------
 
 SharedStructs are reference types.
+
+A struct type must be redefined in each worker that touches objects of
+that type, and all the definitions must be identical.  A type tag is
+computed from the type name, the field names, and the field types, and
+stored in the object, and used to construct the front object for the
+shared object when the latter is referenced in a worker.
 
 new SharedStruct.Type(tag, fields)
   Create a new structure /type/ with the given (globally unique) tag name

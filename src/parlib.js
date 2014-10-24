@@ -3,27 +3,26 @@
  * conveniently.
  *
  * DRAFT.
- * 23 October 2014 / lhansen@mozilla.com.
+ * 25 October 2014 / lhansen@mozilla.com.
  *
- * For documentation and examples see parlib.txt.
+ * For documentation and examples see parlib.txt and reference.txt.
  */
 
 /*
  * TODO:
- *  - Shared database of types, lookup by brand, check equivalence, not
- *    a magic order-of-definition as now.  (Would be helpful to have
- *    shared strings for this.)
- *
  *  - Storage management.
  *
- *  - Allow structures more than 12 words in size.
+ *  - Allow structures more than 12 words in size.  That should not be
+ *    hard now; the descriptor is really not used for much any more,
+ *    and will only be useful for GC.  Also, the descriptor can be
+ *    stored in a table off to the side, indexed by the typetag.
+ *
+ *  - Better hash algorithm, and maybe a bigger field for the hash code
+ *    (full word instead of a half word).
  *
  *  - More atomic operations (sub on int/float; and, or, xor on int)
  *
- *  - Utility methods, such as init(x) on SharedVar and init(xs) on
- *    arrays.
- *
- *  - A string type.
+ *  - Utility methods, such as init(x) on SharedVar.
  *
  *  - An array-of-inline-structures type.
  *
@@ -141,8 +140,12 @@
  *   1: iab next-free pointer (variable, update with CAS)
  *   2: iab limit pointer (constant, pointer past the end)
  *   3: next process ID
- *   4: sharedVar0: starts here
- *   5: ...
+ *   4: head of type list
+ *   5: next typetag value
+ *   6: spinlock for type list
+ *   7: padding
+ *   8: sharedVar0: starts here
+ *   9: ...
  *   
  * The next-free pointer must be kept 8-byte aligned (2 words).
  */
@@ -165,7 +168,7 @@ const _lock_desc = (_i32 << 4) | 1;                                    // One wo
 
 const _allocptr_loc = 1;
 const _alloclim_loc = 2;
-const _sharedVar_loc = 4;
+const _sharedVar_loc = 8;
 
 /* Construction protocol (implementation detail).
  *
@@ -201,15 +204,19 @@ var _iab;                       // SharedInt32Array covering the _sab
 var _cab;			// SharedUint16Array covering the _sab
 var _dab;                       // SharedFloat64Array covering the _sab
 
-const _typetable = [];          // Local map from integer to constructor
-var _typetag = 1;               // No type has tag 0
+const _typetable = {};          // Local map from integer to constructor
+const _typename = {};		// Local map from integer to name (for user-defined types)
+var _typetag = 1;               // No type has tag 0, this counter is for system types only, max value=255
 
 _typetable[0] =                 // Provide a sane handler for tag 0
     function () {
         throw new Error("Type tag 0 was looked up: not right");
     };
 
-const SharedHeap = { pid: -1 }; // The pid is altered by SharedHeap.setup().
+const SharedHeap = {
+    pid: -1,		        // The pid is altered by SharedHeap.setup()
+    pending: []			// Pending type definitions, if pid==-1
+};
 
 var sharedVar0;
 
@@ -238,6 +245,8 @@ SharedHeap.allocate =
 
 SharedHeap.setup =
     function (sab, whoami) {
+	if (SharedHeap.pid != -1)
+	    throw new Error("Heap already initialized");
         _sab = sab;
         _iab = new SharedInt32Array(sab);
 	_cab = new SharedUint16Array(sab);
@@ -246,9 +255,22 @@ SharedHeap.setup =
         case "master":
             SharedHeap.pid = 0;
             _iab[0] = 0;
-            _iab[1] = 4;            // Initial allocation pointer
+            _iab[1] = _sharedVar_loc; // Initial allocation pointer
             _iab[2] = _iab.length;
             _iab[3] = 1;
+	    _iab[4] = 0;	// Type list head
+	    _iab[5] = 1;	// Next typetag
+	    _iab[6] = 0;	// Spinlock
+	    // FIXME
+	    // This may fail, because the type for SharedVar.ref must be allocated 
+	    // in the shared heap before the shared variable can be.  Then the offsets
+	    // are off.  Also the pending stuff is processed further down, which
+	    // is too late.
+	    //
+	    // May be fixable by reserving the space, initializing it manually, and
+	    // then running _ObjectFromPointer() on the address.   Or by manipulating
+	    // the heap pointer, since we can guarantee the slaves are not running
+	    // at this point (?how?)
             sharedVar0 = new SharedVar.ref();
             if (sharedVar0._base != _sharedVar_loc)
                 throw new Error("Internal error: bad SharedVar location");
@@ -260,6 +282,10 @@ SharedHeap.setup =
         default:
             throw new Error("Invalid shared heap initialization specification: " + whoami);
         }
+	// FIXME: too late?
+	for ( var t of SharedHeap.pending )
+	    t();
+	SharedHeap.pending = null;
     };
 
 SharedHeap.equals =
@@ -455,10 +481,62 @@ _SharedObjectProto.prototype = {
     toString: function () { return "Shared " + this._tag; } // _tag on the struct objects' prototypes
 };
 
+function _create(__txt) {
+    return eval(__txt);
+}
+
+// The type tag is a hash of the tagname, the field names, and the field types.
+// I'm using TAB for a separator since that is unlikely to be used in existing
+// tagnames and field names.
+
+function _CreateTypetag(tagname, fields) {
+    var signature = tagname;
+    for ( var i in fields ) {
+        if (!fields.hasOwnProperty(i))
+            continue;
+	signature += "\t" + i + "\t";
+	switch (fields[i]) {
+	case SharedStruct.int32:
+	    signature += "i";
+	    break;
+	case SharedStruct.atomic_int32:
+	    signature += "I";
+	    break;
+	case SharedStruct.float64:
+	    signature += "d";
+	    break;
+	case SharedStruct.atomic_float64:
+	    signature += "D";
+	    break;
+	case SharedStruct.ref:
+	    signature += "r";
+	    break;
+	case SharedStruct.atomic_ref:
+	    signature += "R";
+	    break;
+	default:
+            throw new Error("Invalid field type");
+	}
+    }
+    
+    // http://www.cse.yorku.ca/~oz/hash.html, this is the djb2 algorithm.
+
+    var hash = 5381;
+    for ( var i=0 ; i < signature.length ; i++ )
+	hash = ((hash << 5) + hash) + signature.charCodeAt(i);  // hash * 33 + c
+    var h = hash;
+    hash = Math.abs(hash|0);
+    if (hash < 256)
+	hash += 256;		// The first 256 entires are reserved for the system
+    hash = (hash & 0xFFFF) ^ (hash >>> 16); // 16 bits for the field - probably too little
+    return hash;
+}
+
 SharedStruct.Type =
     function(tagname, fields) {
         if (typeof tagname != "string")
             throw new Error("Tag name must be a string");
+
         var lockloc = 0;
         var loc = 2;            // Header followed by type tag
         var desc = 0;
@@ -675,7 +753,7 @@ SharedStruct.Type =
                 ${inits}
              }` :
         "";
-        var typetag = _typetag++;
+	var typetag = _CreateTypetag(tagname, fields);
         var code =
             `(function () {
                 "use strict";
@@ -692,9 +770,11 @@ SharedStruct.Type =
                 c.prototype = p;
                 return c;
             })();`;
-        // TODO: Is this eval() safe?  Note the code that is being run is strict.
-        var c = eval(code);
-        _typetable[typetag] = c;
+        var c = _create(code);
+	if (_typetable[typetag])
+	    throw new Error("Type conflict: New type " + tagname + " conflicts with existing type " + _typename[typetag]);
+	_typetable[typetag] = c;
+	_typename[typetag] = tagname;
         return c;
     };
 
