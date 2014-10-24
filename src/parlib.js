@@ -30,6 +30,13 @@
  *
  *  - Performance can be pretty awful, see ../ray3/README.md for more
  *    details.
+ *
+ *  - Create a WebBarrier type: the master installs a callback on
+ *    this.  When *all* the slaves enter (that's the whole point) the
+ *    master gets the callback.  Eventually the master calls release
+ *    on the barrier to set the slaves going again.  The idea here is
+ *    that the master only accesses shared memory while the slaves are
+ *    quiescent.
  */
 
 /* Implementation details.
@@ -140,10 +147,10 @@
  *   1: iab next-free pointer (variable, update with CAS)
  *   2: iab limit pointer (constant, pointer past the end)
  *   3: next process ID
- *   4: head of type list
- *   5: next typetag value
- *   6: spinlock for type list
- *   7: padding
+ *   4: unused
+ *   5: unused
+ *   6: unused
+ *   7: unused
  *   8: sharedVar0: starts here
  *   9: ...
  *   
@@ -215,7 +222,6 @@ _typetable[0] =                 // Provide a sane handler for tag 0
 
 const SharedHeap = {
     pid: -1,		        // The pid is altered by SharedHeap.setup()
-    pending: []			// Pending type definitions, if pid==-1
 };
 
 var sharedVar0;
@@ -258,19 +264,6 @@ SharedHeap.setup =
             _iab[1] = _sharedVar_loc; // Initial allocation pointer
             _iab[2] = _iab.length;
             _iab[3] = 1;
-	    _iab[4] = 0;	// Type list head
-	    _iab[5] = 1;	// Next typetag
-	    _iab[6] = 0;	// Spinlock
-	    // FIXME
-	    // This may fail, because the type for SharedVar.ref must be allocated 
-	    // in the shared heap before the shared variable can be.  Then the offsets
-	    // are off.  Also the pending stuff is processed further down, which
-	    // is too late.
-	    //
-	    // May be fixable by reserving the space, initializing it manually, and
-	    // then running _ObjectFromPointer() on the address.   Or by manipulating
-	    // the heap pointer, since we can guarantee the slaves are not running
-	    // at this point (?how?)
             sharedVar0 = new SharedVar.ref();
             if (sharedVar0._base != _sharedVar_loc)
                 throw new Error("Internal error: bad SharedVar location");
@@ -282,10 +275,6 @@ SharedHeap.setup =
         default:
             throw new Error("Invalid shared heap initialization specification: " + whoami);
         }
-	// FIXME: too late?
-	for ( var t of SharedHeap.pending )
-	    t();
-	SharedHeap.pending = null;
     };
 
 SharedHeap.equals =
