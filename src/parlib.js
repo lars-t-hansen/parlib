@@ -444,7 +444,7 @@ const SharedArray = {};
 	    // does not improve performance or get rid of strange bounds check bailouts.
             if (d == _array_ref_desc) {
 		a.get = function (index) { return _ObjectFromPointer(this[index]); }
-		a.put = function (x, v) { this[x] = v ? v._base : 0; };
+		a.put = function (index, v) { this[index] = (v ? v._base : 0); };
             }
             return a;
 	};
