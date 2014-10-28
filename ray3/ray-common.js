@@ -418,8 +418,8 @@ function raycolor(eye, ray, t0, t1, depth) {
 
 function raytrace(coord, reportDone) {
     var w = coord.world;
-    eye = {x:w.eye.x, y:w.eye.y, z:w.eye.z};
-    light = {x:w.light.x, y:w.light.y, z:w.light.z};
+    eye = w.eye;
+    light = w.light;
     background = w.background;
     world = w.scene;
     bits = new Bitmap(coord.mem, height, width);
