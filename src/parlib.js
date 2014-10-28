@@ -436,9 +436,12 @@ const SharedArray = {};
             a._base = p;
             // A SharedArray.ref is currently just a SharedInt32Array, we don't want
             // to place these methods on the prototype.
+	    //
+	    // It appears 'this[index]' is faster than 'a[index]', by a little bit,
+	    // probably because 'this' is readily available.
             if (d == _array_ref_desc) {
-		a.get = function (index) { return _ObjectFromPointer(a[index]); }
-		a.put = function (x, v) { a[x] = v ? v._base : 0; };
+		a.get = function (index) { return _ObjectFromPointer(this[index]); }
+		a.put = function (x, v) { this[x] = v ? v._base : 0; };
             }
             return a;
 	};
