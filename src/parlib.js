@@ -211,6 +211,9 @@ var _iab;                       // SharedInt32Array covering the _sab
 var _cab;			// SharedUint16Array covering the _sab
 var _dab;                       // SharedFloat64Array covering the _sab
 
+var _IAB;
+var _DAB;
+
 const _typetable = {};          // Local map from integer to constructor
 const _typename = {};		// Local map from integer to name (for user-defined types)
 var _typetag = 1;               // No type has tag 0, this counter is for system types only, max value=255
@@ -257,6 +260,8 @@ SharedHeap.setup =
         _iab = new SharedInt32Array(sab);
 	_cab = new SharedUint16Array(sab);
         _dab = new SharedFloat64Array(sab);
+	_IAB = _iab;
+	_DAB = _dab;
         switch (whoami) {
         case "master":
             SharedHeap.pid = 0;
@@ -560,6 +565,8 @@ SharedStruct.Type =
         var init = [];          // Init if an object is present
         var zinit = [];         // Init if an object is not present
         var cprop = [];
+	var need_iab = false;
+	var need_dab = false;
         for ( var i in fields ) {
             if (!fields.hasOwnProperty(i))
                 continue;
@@ -567,6 +574,7 @@ SharedStruct.Type =
             if (!(typeof f == "object" && f != null))
                 throw new Error("Invalid field type " + f);
             if (f === SharedStruct.atomic_float64 && !lockloc) {
+		need_iab = true;
                 lockloc = loc;
                 desc = desc | (_i32 << ((loc-2)*2));
                 loc++;
@@ -577,6 +585,7 @@ SharedStruct.Type =
             if (i.charAt(0) == '$')
                 cprop.push([i, loc]);
             if (f === SharedStruct.int32) {
+		need_iab = true;
                 var a = true;
                 if (i.charAt(0) != '$') {
                     acc.push([i, 
@@ -594,6 +603,7 @@ SharedStruct.Type =
                 loc++;
             }
             else if (f === SharedStruct.atomic_int32) {
+		need_iab = true;
                 if (i.charAt(0) == '$')
                     throw new Error("Private atomic fields are silly");
                 acc.push([i,
@@ -614,6 +624,7 @@ SharedStruct.Type =
                 loc++;
             }
             else if (f === SharedStruct.float64) {
+		need_dab = true;
                 var a = true;
                 if (i.charAt(0) != '$') {
                     acc.push([i, 
@@ -635,6 +646,7 @@ SharedStruct.Type =
             else if (f === SharedStruct.atomic_float64) {
                 if (i.charAt(0) == '$')
                     throw new Error("Private atomic fields are silly");
+		need_dab = true;
                 acc.push([i,
                           `function() {
                               var b = this._base;
@@ -687,6 +699,7 @@ SharedStruct.Type =
                 //
                 // On the other hand that means a longer path for type reconstruction since we must
                 // test the descriptor.
+		need_iab = true;
                 var a = true;
                 if (i.charAt(0) != '$') {
                     acc.push([i, 
@@ -706,6 +719,7 @@ SharedStruct.Type =
             else if (f === SharedStruct.atomic_ref) {
                 if (i.charAt(0) == '$')
                     throw new Error("Private atomic fields are silly");
+		need_iab = true;
                 acc.push([i,
                           `function() { return _ObjectFromPointer(Atomics.load(_iab, this._base + ${loc})) }`,
                           `function(v) { return Atomics.store(_iab, this._base + ${loc}, (v ? v._base : 0)) }`]);
@@ -771,7 +785,11 @@ SharedStruct.Type =
         "";
 	var typetag = _CreateTypetag(tagname, fields);
 	// Caching _iab and _dab helps a little bit but not all that much (3% on ray3).
-	// We could cache only the ones needed for a particular structure (_iab, _cab, _dab).
+	// It sure would be nice to make those 'const' and not 'var', but several
+	// levels of order-of-initialization need to change, notably, prototype methods
+	// must be attached early (because they are captured by client code, eg SharedVar),
+	// and the heap arrays must be initialized late (because types are created before
+	// initialization).
 	//
 	// Not creating a new prototype does not make any difference.
 	//
@@ -782,7 +800,11 @@ SharedStruct.Type =
         var code =
             `(function () {
                 "use strict";
+		${need_iab ? "var _iab;" : ""}
+		${need_dab ? "var _dab;" : ""}
                 var c = function (_v) {
+		    ${need_iab ? "_iab = _IAB;" : ""}
+		    ${need_dab ? "_dab = _DAB;" : ""}
                     if (_v === _noalloc) return;
                     SharedHeap._allocObject(${desc}, ${typetag}, this);
                     ${ainits}
