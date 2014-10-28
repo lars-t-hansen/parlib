@@ -348,16 +348,39 @@ SharedHeap._allocArray =
 // cleared on GC, and in the presence of manual storage management if
 // objects are purged from the cache when they are freed.
 
-const _fromref = Array.build(1024, (x) => 0);
-const _fromobj = Array.build(1024, (x) => null);
+// On ray3, the miss rate is extremely sensitive to the hash function
+// and size.  With a shift of 1, which is the "rational" shift, I see
+// a miss rate barely above zero.  With a shift of 0 (which includes
+// the redundant low bit and misses the high bit) it jumps to 12%.
+//
+// As for size, the low miss ratio is with a 2K entry cache, while
+// with a 1K entry cache (which again misses the high bit) the miss
+// rate jumps to 12% again.
+//
+// The cache is arguably a hack, but it's hard to argue with its
+// efficacy in reducing front objects, and it makes it possible to
+// focus on other performance problems.
+
+const _fromref = Array.build(1024*2, (x) => 0);
+const _fromobj = Array.build(1024*2, (x) => null);
+
+var _nonnulls = 0;
+var _probes = 0;
+var _misses = 0;
 
 function _ObjectFromPointer(p) {
+    //_probes++;
+
     if (p == 0)
 	return null;
 
-    var k = (p >> 3) & 1023;
+    //_nonnulls++;
+
+    var k = (p >> 1) & (1024*2-1);
     if (_fromref[k] == p)
         return _fromobj[k];
+
+    //_misses++;
 
     var constructor = _typetable[_iab[p+1] & 65535];
     switch (_iab[p] >> 28) {
@@ -372,6 +395,8 @@ function _ObjectFromPointer(p) {
 	var obj = new constructor(_noalloc);
 	obj._base = p;
 	break;
+    default:
+	throw new Error("Bad constructor");
     }
     _fromref[k] = p;
     _fromobj[k] = obj;
@@ -715,17 +740,19 @@ SharedStruct.Type =
         for ( var i of zinit )
             zinits += i + ';\n';
         var accs = '';
+        var t = '';
         for ( var [i,g,s] of acc ) {
-            var t = '';
             if (g || s) {
-                t += `{${i}: {`;
+		if (t != '') t += ",";
+		t += `${i}: {`;
                 if (g)
                     t += `get: ${g},`;
                 if (s) 
                     t += `set: ${s}`;
-                t += `}}`;
-                accs += `Object.defineProperties(p, ${t});\n`;
+                t += `}`;
             }
+	    if (t != '')
+		accs = `Object.defineProperties(p, {${t}});\n`;
         }
         var meths = '';
         for ( var [i,m] of meth )
@@ -743,6 +770,15 @@ SharedStruct.Type =
              }` :
         "";
 	var typetag = _CreateTypetag(tagname, fields);
+	// Caching _iab and _dab helps a little bit but not all that much (3% on ray3).
+	// We could cache only the ones needed for a particular structure (_iab, _cab, _dab).
+	//
+	// Not creating a new prototype does not make any difference.
+	//
+	// Having one defineProperties call or several makes no difference.  Moving the init
+	// of c.prototype makes no difference.
+	//
+	// Is the use of eval an impediment to optimization?  No evidence of that so far.
         var code =
             `(function () {
                 "use strict";

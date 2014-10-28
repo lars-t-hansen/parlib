@@ -430,10 +430,8 @@ function raytrace(coord, reportDone) {
             break;
 	var b = v.bottom;
 	var t = b + v.height;
-	//show("trace: " + b + " " + t);
         trace(b, t);
     }
-    show("Cache: " + _hits + " " + _misses);
     if (coord.count.add(-1) == 1)
         reportDone();
 }
