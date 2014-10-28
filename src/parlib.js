@@ -439,6 +439,9 @@ const SharedArray = {};
 	    //
 	    // It appears 'this[index]' is faster than 'a[index]', by a little bit,
 	    // probably because 'this' is readily available.
+	    //
+	    // Replacing these with global GetRef(a,x) and PutRef(a,x,v) methods
+	    // does not improve performance or get rid of strange bounds check bailouts.
             if (d == _array_ref_desc) {
 		a.get = function (index) { return _ObjectFromPointer(this[index]); }
 		a.put = function (x, v) { this[x] = v ? v._base : 0; };
