@@ -62,6 +62,12 @@ Sharedheap.equals(a, b)
   null or both objects whose memory addresses are the same then return
   true, otherwise return false.
 
+SharedHeap.pid
+  The PID is 0 in the master and a positive integer in all the slaves.
+
+  If the PID reads as -1 then the SharedHeap has not yet been
+  initialized in this worker.
+
 
 SharedArray
 -----------
@@ -81,8 +87,9 @@ new SharedArray.<type>(<length value>)
 
 <SharedArray>.bytePtr()
   Return the global memory address of the start of the first element
-  of the array; occasionally useful to work around API limitations,
-  eg for bulk copy.
+  of the array, ie, the byteOffset within the SharedArrayBuffer;
+  occasionally useful to work around API limitations, eg for bulk
+  copy.
 
 <SharedArray>[x]
   Return the xth element in the array (semantics as for SharedTypedArray).
@@ -93,7 +100,7 @@ new SharedArray.<type>(<length value>)
   Do not use this on SharedArray.ref types, use set() instead.
 
 <SharedArray.ref>.get(x)
-  Return the xth element in the array as an object.
+  Return the xth element in the array as an object (or null value).
 
 <SharedArray.ref>.set(x, v)
   Set the xth element in the array to the shared object (or null value) v.
@@ -102,7 +109,7 @@ new SharedArray.<type>(<length value>)
 SharedStruct
 ------------
 
-SharedStructs are reference types.
+SharedStructs are mutable reference types.
 
 A struct type must be redefined in each worker that touches objects of
 that type, and all the definitions must be identical.  A type tag is
@@ -149,16 +156,18 @@ new <SharedStruct type>(inits)
   For the atomic field types, reading and writing is atomic and
   synchronizing.
 
-  Reference fields are returned as shared objects when read, and
-  setting a reference field requires null or a shared object value.
+  Reference fields are returned as shared objects or null when read,
+  and setting a reference field requires null or a shared object
+  value.
 
 <SharedStruct instance>.add_<field name>(n)
-  An accessor for atomically adding n to an atomic_int32 or atomic_float64
-  field.  Returns the old value of the field.
+  An accessor for atomically adding n to an atomic_int32 or
+  atomic_float64 field.  Returns the old value of the field.
 
 <SharedStruct instance>.compareExchange_<field name>(oldval, newval)
   An accessor for atomically compare-and-exchanging the value of an
-  atomic field (of any type).  Returns the old value of the field.
+  atomic field (of any type).  Returns the old value of the field;
+  the exchange was successful if the old value equals oldval.
 
   If the field is an atomic_ref field then oldval, newval, and the
   returned values must be null or shared object values.
@@ -167,7 +176,7 @@ new <SharedStruct type>(inits)
 SharedString
 ------------
 
-SharedStrings are reference types.
+SharedStrings are immutable reference types.
 
 new SharedString(<string value>)
   Allocate and initialize a shared string.
@@ -194,8 +203,8 @@ SharedString.compare(<SharedString> a, <SharedString> b)
 SharedVar
 ---------
 
-A SharedVar value is an object with no exposed properties, it holds a
-single value.
+A SharedVar value is a mutable object with no exposed properties, it
+holds a single value.
 
 new SharedVar.<type>()
   Construct a SharedVar object of the given type.  There are three types:
@@ -219,14 +228,15 @@ that is shared among all workers.
 Lock
 ----
 
-A Lock value is an object with no exposed properties.  It acts as a
-simple non-recursive mutex.
+A Lock value is a mutable object with no exposed properties.  It acts
+as a simple non-recursive mutex.
 
 new Lock()
   Create a new lock.
 
 <Lock instance>.lock()
-  Lock the lock, and block if the lock is already held.
+  Lock the lock, and block if the lock is already held by any worker
+  (including the worker attempting to lock it).
 
 <Lock instance>.unlock()
   Unlock the lock.
@@ -239,11 +249,14 @@ new Lock()
 Cond
 ----
 
-A Cond value is an object with one exposed property, "lock".  It is a
-condition variable for communicating among workers.
+A Cond value is a mutable object with one exposed (and immutable)
+property, "lock".  It is a condition variable for communicating among
+workers.
 
 new Cond({lock:l})
   Create a new Cond and associate it with the lock l.
+
+  Do not update the "lock" field of a Cond.
 
 Cond.wait()
   The lock must be held when this call is made.  Atomically unlock the lock
