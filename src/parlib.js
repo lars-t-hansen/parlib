@@ -387,6 +387,9 @@ function _ObjectFromPointer(p) {
 
     //_misses++;
 
+    // There's some evidence that _iab[p+1] causes an occasional bounds check bailout
+    // but I've not pinned it down, and have not been able to observe it in any way
+    // from JS.
     var constructor = _typetable[_iab[p+1] & 65535];
     switch (_iab[p] >> 28) {
     case 0:
