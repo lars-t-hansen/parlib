@@ -41,21 +41,25 @@ SharedHeap
 ----------
 
 SharedHeap.allocate(k)
-  Return a new SharedArrayBuffer of length at least k.  The length
-  may be larger than k to honor misc internal constraints in SpiderMonkey.
+  Return a new SharedArrayBuffer (sab) of length at least k.  The
+  length may be larger than k to honor misc internal constraints in
+  SpiderMonkey.
 
 SharedHeap.setup(sab, who)
-  Initialize the shared heap within a worker.  If who is "master"
-  then this is the first worker, and basic heap data such as allocation
-  pointers and bootstrapping variables will be initialized within the
-  shared memory.  If who is "slave" such initialization is assumed already
-  to have happened.
+  Initialize the shared heap within a worker, providing a
+  SharedArrayBuffer 'sab'.
+
+  If who is the string "master" then this is the first worker
+  (pid==0), and basic heap data such as allocation pointers and
+  bootstrapping variables will be initialized within the shared
+  memory. If who is the string "slave" such initialization is assumed
+  already to have happened.
 
   The shared variable sharedVar0 (see below) is created by setup().
 
   The slaves must not be initialized until the master initialization
-  is complete.  For practical purposes, do not send the memory array
-  to the slaves until SharedHeap.setup(..., "master") has returned.
+  is complete.  For practical purposes, do not send the sab to the
+  slaves until SharedHeap.setup(..., "master") has returned.
 
 Sharedheap.equals(a, b)
   A and b must be null or shared objects.  If a and b are either both
@@ -212,6 +216,10 @@ new SharedVar.<type>()
    SharedVar.int32
    SharedVar.float64
    SharedVar.ref
+
+<SharedVar instance>.init(v)
+  Set the value of of the variable and return the instance.  This is
+  *not* an atomic operation, use it before publishing the object.
 
 <SharedVar instance>.get()
   Return the value of the variable.  This is an atomic, synchronizing

@@ -86,5 +86,25 @@ BoundedBuffer.ref =
 		l.unlock();
 	    };
 
+	// This will not block in the lock or in a wait.
+	BoundedBuffer.prototype.tryPut =
+	    function (v) {
+		var l = this._lock;
+		var c = this._cond;
+		var xs = this._items;
+		if (!l.tryLock())
+		    return false;
+		if ((this._tail + 1) % xs.length == this._head) {
+		    l.unlock();
+		    return false;
+		}
+		var t = this._tail;
+		xs.put(t, v);
+		this._tail = (t + 1) % xs.length;
+		if (this._waiters)
+		    c.wake();
+		l.unlock();
+	    };
+
 	return BoundedBuffer;
     })();

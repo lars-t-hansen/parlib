@@ -3,7 +3,7 @@
  * conveniently.
  *
  * DRAFT.
- * 25 October 2014 / lhansen@mozilla.com.
+ * 29 October 2014 / lhansen@mozilla.com.
  *
  * For documentation and examples see parlib.txt and reference.txt.
  */
@@ -17,12 +17,11 @@
  *    and will only be useful for GC.  Also, the descriptor can be
  *    stored in a table off to the side, indexed by the typetag.
  *
- *  - Better hash algorithm, and maybe a bigger field for the hash code
- *    (full word instead of a half word).
+ *  - Better hash algorithm, and maybe a bigger field for the hash
+ *    code (full word instead of a half word).  Or better yet, a shmem
+ *    database of registered types, with lookup by name.
  *
  *  - More atomic operations (sub on int/float; and, or, xor on int)
- *
- *  - Utility methods, such as init(x) on SharedVar.
  *
  *  - An array-of-inline-structures type.
  *
@@ -30,13 +29,6 @@
  *
  *  - Performance can be pretty awful, see ../ray3/README.md for more
  *    details.
- *
- *  - Create a WebBarrier type: the master installs a callback on
- *    this.  When *all* the slaves enter (that's the whole point) the
- *    master gets the callback.  Eventually the master calls release
- *    on the barrier to set the slaves going again.  The idea here is
- *    that the master only accesses shared memory while the slaves are
- *    quiescent.
  */
 
 /* Implementation details.
@@ -89,7 +81,7 @@
  *
  * If B=000 then the value is a "structure" type:
  *
- *   C is a word count (four bits, max 12 words).
+ *   C is a word count (four bits, max 12 words), excluding the header.
  * 
  *   F is a bit vector of field descriptors, two bits per word in the
  *   object:
@@ -123,7 +115,7 @@
  *
  *   C must be 0
  *
- *   F holds the number of characters in the string
+ *   F holds the number of characters in the string (2^24-1 max)
  *
  *   Each halfword after the two-word header holds a character of the
  *   string, in order.
@@ -144,8 +136,8 @@
  * The low words of '_iab' are allocated as follows:
  *
  *   0: unused, the "null ref" points here
- *   1: iab next-free pointer (variable, update with CAS)
- *   2: iab limit pointer (constant, pointer past the end)
+ *   1: _iab next-free pointer (variable, update with CAS)
+ *   2: _iab limit pointer (constant, pointer past the end)
  *   3: next process ID
  *   4: unused
  *   5: unused
@@ -837,7 +829,8 @@ SharedStruct.Type =
 
 //////////////////////////////////////////////////////////////////////
 //
-// Strings are reference types.  For now they are immutable.
+// Strings are reference types.  For now they are immutable.  We
+// cache them for convenience, probably a good idea until we have GC.
 
 const _string_tag = _typetag++;
 
@@ -846,13 +839,18 @@ const SharedString =
 	if (s === _noalloc) return;
 	if (typeof s != "string")
 	    throw new Error("Initializing string required");
+	if (SharedString.cached.hasOwnProperty(s))
+	    return SharedString.cached[s];
 	var len = s.length;
 	var p = SharedHeap._allocString(len, _string_tag, _string_desc | (len << 4)); 
 	this._base = p;
 	var cp = (p+2)*2;
 	for ( var i=0 ; i < len ; i++ )
 	    _cab[cp++] = s.charCodeAt(i);
+	SharedString.cached[s] = this;
     };
+
+SharedString.cached = {};
 
 _typetable[_string_tag] = SharedString;
 
@@ -915,16 +913,18 @@ Object.defineProperties(SharedString.prototype,
 
 //////////////////////////////////////////////////////////////////////
 //
-// SharedVar objecs are simple structs with 'get', 'put' methods
-// as well as 'add' and 'compareExchange'.
+// SharedVar objecs are simple structs with 'init', 'get', and 'put'
+// methods as well as 'add' and 'compareExchange'.
 //
-// No initializer is required.
+// No initializer is required; use the init() method if you want
+// something non-default.
 
-var SharedVar = {};
+const SharedVar = {};
 
 SharedVar.int32 = 
     (function () {
         var T = SharedStruct.Type("SharedVar.int32", {_cell:SharedStruct.atomic_int32});
+	T.prototype.init = function (v) { this._cell = v; return this; }
         T.prototype.get = function () { return this._cell }
         T.prototype.put = function (v) { this._cell = v; }
         T.prototype.add = T.prototype.add__cell;
@@ -935,6 +935,7 @@ SharedVar.int32 =
 SharedVar.float64 =
     (function () {
         var T = SharedStruct.Type("SharedVar.float64", {_cell:SharedStruct.atomic_float64});
+	T.prototype.init = function (v) { this._cell = v; return this; }
         T.prototype.get = function () { return this._cell }
         T.prototype.put = function (v) { this._cell = v; }
         T.prototype.add = T.prototype.add__cell;
@@ -945,6 +946,7 @@ SharedVar.float64 =
 SharedVar.ref =
     (function () {
         var T = SharedStruct.Type("SharedVar.ref", {_cell:SharedStruct.atomic_ref});
+	T.prototype.init = function (v) { this._cell = v; return this; }
         T.prototype.get = function () { return this._cell }
         T.prototype.put = function (v) { this._cell = v; }
         T.prototype.compareExchange = T.prototype.compareExchange__cell;
@@ -954,8 +956,8 @@ SharedVar.ref =
 
 //////////////////////////////////////////////////////////////////////
 //
-// Lock objects are simple structs with 'lock', 'unlock', and 'invoke'
-// methods.  No initializer is required.
+// Lock objects are simple structs with 'lock', 'tryLock', 'unlock',
+// and 'invoke' methods.  No initializer is required.
 //
 // The mutex code is based on http://www.akkadia.org/drepper/futex.pdf.
 //
@@ -970,7 +972,7 @@ SharedVar.ref =
 // _Lock is exposed to Cond.
 const _Lock = SharedStruct.Type("Lock", {$index: SharedStruct.int32});
 
-var Lock =
+const Lock =
     (function () {
         "use strict";
 
@@ -988,6 +990,13 @@ var Lock =
                         }
                     } while ((c = Atomics.compareExchange(iab, index, 0, 2)) != 0);
                 }
+            };
+
+	_Lock.prototype.tryLock =
+            function () {
+                const iab = _iab;
+                const index = this._base + $index;
+                return Atomics.compareExchange(iab, index, 0, 1) == 0;
             };
 
         _Lock.prototype.unlock =
@@ -1038,7 +1047,7 @@ var Lock =
 // (The condvar code is based on http://locklessinc.com/articles/mutex_cv_futex,
 // though modified because some optimizations in that code don't quite apply.)
 
-var Cond =
+const Cond =
     (function () {
         "use strict";
 
