@@ -2,7 +2,7 @@ Overall usage
 -------------
 
 All workers must include parlib.js, and then optionally any of the
-utility files (CyclicBarrier, BoundedBuffer, etc).
+utility files (CyclicBarrier, BoundedBuffer, Framework, etc).
 
 One worker must act as the master: allocate the shared memory,
 initialize the shared heap as "master", and pass the memory to the
