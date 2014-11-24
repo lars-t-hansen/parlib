@@ -37,11 +37,11 @@ function cross(a, b) { return DL3(a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y 
 function dot(a, b) { return a.x*b.x + a.y*b.y + a.z*b.z; }
 
 function Material(diffuse, specular, shininess, ambient, mirror) {
-    this.diffuse=diffuse;
-    this.specular=specular;
-    this.shininess=shininess;
-    this.ambient=ambient;
-    this.mirror=mirror
+    this.diffuse = diffuse;
+    this.specular = specular;
+    this.shininess = shininess;
+    this.ambient = ambient;
+    this.mirror = mirror;
 }
 
 const zzz = DL3(0,0,0);
