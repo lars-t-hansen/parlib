@@ -1,10 +1,11 @@
 // A framework for master-and-slave computations where the main thread
 // remains a coordinator and work is farmed out to workers.
 //
-// When you use this framework do not use sharedVar0, which is used by
+// See framework-reference.txt for the full reference manual.
+//
+// When you use this framework DO NOT use sharedVar0, which is used by
 // the framework for its own purposes.  Instead use the defineVariable
-// and getVariable APIs defined below.
-
+// and getVariable APIs.
 
 // Create the Master on the main thread:
 //
@@ -89,6 +90,27 @@ Master.prototype.start =
 	    w.postMessage(["start", this.sab], [this.sab]);
 	this._workPump();
     };
+
+
+
+// The appropriate API for a nonblocking master is:
+//
+//   - master.addWorkGenerator(generator)
+//
+// where generator is an ES6 generator ("function*" value) that is
+// invoked to get a work item; it returns the work item or falls off
+// the end, terminating the generator.  The fn may be invoked many
+// times in a row; caching may be useful; note that there is however
+// no guarantee about no other event handlers firing between two
+// invocations.
+// 
+// Also:
+//
+//   - master.addMessageHandler(tag, fn)
+//
+// where fn is called back when a worker has posted a result; posting results
+// in this way is optional.
+
 
 
 // doAll() waits for the currently queued tasks to be completed, then

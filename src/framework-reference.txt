@@ -1,0 +1,144 @@
+The "Framework" package
+-----------------------
+
+This is a simple framework for master-and-slave computations where the
+main thread is a callback-driven coordinator and work is farmed out to
+callback-driven workers.  (However synchronization is more flexible, see
+below.)
+
+One thread, normally this would be the window's main thread, is
+designated as the master, and loads the master program.  Other
+threads, running in workers, are designated as slaves and load a slave
+program.
+
+Master and slave programs must include parlib.js and Framework.js.
+
+The framework is appropriate for medium-weight and large-weight work
+items, performing work on slices of arrays, subgrids of larger grids,
+and subgraphs of object graphs.
+
+Though activity in slaves is driven by callbacks, there are other
+communication and synchronization mechanisms.  Slaves may use locking
+and non-locking data structures (shared variables, queues) to
+communicate among themselves, and may communicated with the master via
+non-locking data structures.
+
+The master also has access to simple doAll and barrierAll mechanisms
+that serve to synchronize the workers.
+
+
+Master class
+------------
+A master object is created on the window's main thread, and used to
+generate work to the slaves and receive messages from the slaves.
+
+new Master(memSize, numSlaves, slaveURL) => <master>
+  Create the Master on the main thread.
+
+  memSize is a number of bytes - the amount of heap the application thinks it will need
+  numSlaves is a positive integer - the number of slaves to create
+  slaveURL is a string - the program to load into each slave
+
+  NOTE: specifying the memory size and number of slaves is lame, it
+  will change.
+
+<Master instance>.addWorkGenerator(g)
+  Add g as a work generator in the master.  When more work is needed,
+  g will be called to return it.  Once the generator returns finally,
+  it will be automatically removed.
+
+  'g' must behave as if it is an ES6 'function*' value.
+
+  If there are multiple generators that are live at the same time then
+  they are called in simple round-robin fashion to produce work items.
+
+  See below for a discussion of what constitutes a proper work item.
+
+<Master instance>.addHandler(key, callback)
+  Here 'key' is a string.  When a message tagged with that string is
+  passed back from the slave, callback is invoked (asynchronously)
+  on the message.
+
+  If 'key' matches a previously installed handler then the previously
+  installed handler is replaced.  If callback is null then any
+  previously installed handler is removed.
+
+<Master instance>.defineVariable(key, varobj)
+  Here 'key' is a string.  The SharedVar object 'varobj' is distributed
+  to the slaves under that key.
+
+  Variable distribution can only be performed while the slaves are
+  quiescent, that is, before start() or after a barrier callback.
+  
+<Master instance>.start()
+  Start the master.  It will call the generator to generate work and
+  start farming that work out.
+
+<Master instance>.barrierRelease()
+  The slaves must be quiescent and waiting in a barrier.  Release the
+  slaves from the barrier.
+
+<Master instance>.log(message)
+  Send message to the console.
+
+
+Slave class
+-----------
+A slave object is created on a worker thread.  It receives work items
+from the master and passes back results by message.
+
+new Slave(initializer) => slave
+  Here 'initializer' is a thunk that will be invoked when the slave
+  receives a startup message from the master (ie when the master's
+  'start' method is invoked).
+
+<Slave instance>.addHandler(key, callback)
+  Here 'key' is a string that identifies a work item type, and
+  callback is the function that will be invoked when such a work item
+  is received.  The callback should take one argument, which will be
+  the value that comprises the work item.
+
+  If 'key' matches a previously installed handler then the previously
+  installed handler is replaced.  If callback is null then any
+  previously installed handler is removed.
+
+<Slave instance>.getVariable(key) => varobj
+  Lookup a variable distributed by the master through its
+  defineVariable method.  Returns null if there is no such variable.
+
+<Slave instance>.post(key, value)
+  Here 'key' is a string and value should be a shared-memory object.
+  Send the message to the master, who will receive it in an installed
+  message handler (see addHandler).
+
+<Slave instance>.log(message)
+  Send message to the console (via a message to the master).
+
+
+Work item classes
+-----------------
+The work generator returns an instance of a WorkItem type.  There are
+currently three such types.
+
+new WorkItem(key, value) => work item
+  A work item that a slave will receive on a handler installed through
+  its addHandler method.  The value must be a shared-memory reference
+  value, or null.
+
+WorkItemAll(key, value) => work item
+  A work item that all slaves will receive.  The slaves do not
+  synchronize before or after.
+
+WorkItemBarrierAll(callback) => work item
+  A work item that all slaves will receive, but not perceive: It will
+  make each slave enter a barrier, and when all have entered the
+  barrier the callback will be invoked in the master.
+
+  The master must explicitly unblock slaves in a barrier.
+
+Work items may be queued before being used and may be modified by the
+framework, and should be considered immutable by the application.
+
+
+
+
