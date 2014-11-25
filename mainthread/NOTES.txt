@@ -1,0 +1,62 @@
+Apparent fact: If the main thread is blocking in a futex then it is
+also blocking every worker that is waiting for an event (either as the
+main thread goes into the wait or after it has started waiting),
+because the event is dispatched by the same event loop that main is
+in.
+
+(It is necessary to verify that further but it appears to be the case.)
+
+The immediate consequence is that the main thread must not be waiting
+to be woken up by any of those workers who need to receive an event
+before they can perform the wakeup.
+
+In turn that means that if a worker needs to process events at all
+after it has been started up (and has reported back that it is
+running) then there will always be a question about whether the main
+thread can legally wait on a wakeup from that worker.
+
+One thing we can do is make the lock wait-aware, but only if we know
+who is going to perform the wakeup.  (A wait-aware lock would check,
+before blocking on the main thread, whether the prospective wakers are
+all waiting for an event; if some waker is not but later goes to sleep
+to wait for an event it will first check whether the main thread is
+waiting on it, and if so it will break the lock (?) if it is the last
+prospective waker to go to sleep.)  This is an awful API to
+program against, probably.
+
+A main-thread lock (dynamically determined that main is locking on it)
+can be time-limited, but will that really help any?  Ditto the
+condition variable, not sure what the semantics are since the lock is
+technically not held when waiting on the condition, but that's a
+detail.
+
+A radical solution would be to break the main thread apart from the
+event loop so that that loop is not blocked when main blocks, but
+there may be a lot of problems with that.  Still, it needs to be
+investigated.
+
+Full coroutines would possibly help here: one would suspend the
+waiting thread after a lock or cond times out, return to the event
+loop, process events (for the workers, anyway), and then jump back
+into the thread and wait some more.  It's probably not much cleaner
+than the "radical" solution, and coroutines remain blue sky.
+
+Clearly we can include all workers in the set of prospective wakers
+for a blocking lock or cond on the main thread, and if all workers are
+either in their event loops or themselves waiting then we have a
+deadlock.  But it adds to the cost of locking to check this, and it
+means that there has to be a song and dance in the message loop for
+each worker.  (Also, somebody has to account for how many workers
+there are, so this is more coordination - clearly a solution that fits
+in a framework.)
+
+A different solution altogether is using a dedicated worker as a proxy
+for the main thread.  This worker would have a special channel that it
+shares with the main thread that allows the main thread not to block,
+while workers communicate with shared memory and locks with each other
+and with this proxy worker.
+
+That takes us back to asymmetric data structures:
+  - channels == work queues
+  - master/worker locks (where the master gets a callback once it acquires the lock)
+
