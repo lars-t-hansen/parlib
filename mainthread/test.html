@@ -1,0 +1,15 @@
+<html>
+<body>
+
+<p> This tests that it's OK for the main thread to block while the
+slave is computing.  The way it does that is to set up a bounded
+buffer problem with a short buffer and then transfering items from the
+worker to the master.  The master throws the items away but the worker
+has to spend some time producing them, so the master will mostly work.
+Every 100 items the master returns to its event loop.
+
+<script src="../src/parlib.js"></script>
+<script src="common.js"></script>
+<script src="master.js"></script>
+</body>
+</html>
