@@ -50,6 +50,5 @@ onmessage =
             // expensive computation might change that.
 
             postMessage("done: " + myID + " " + (DEBUG ? sent.join(' ') : ""));
-        },
-                   0);
+	}, 0);
     };
