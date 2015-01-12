@@ -1060,7 +1060,6 @@ const Cond =
                 const loc = this._base + $seq;
                 const seq = Atomics.load(_iab, loc);
                 const lock = this.lock;
-                const index = lock._base + $index;
                 lock.unlock();
                 var r = Atomics.futexWait(_iab, loc, seq, Number.POSITIVE_INFINITY);
                 lock.lock();
