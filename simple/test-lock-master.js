@@ -1,43 +1,47 @@
-// Create three workers that share a single-consumer multiple-producer
+// Test the Lock and Cond types.
+// 2015-01-12 / lhansen@mozilla.com
+//
+// Create K workers that share a single-consumer, multiple-producer
 // bounded buffer with the master.
 //
-// The workers will each insert 100 elements with values ID+(n*3) into
-// the buffer and then quit.
+// The workers will each produce M elements with values ID+(n*K) into
+// the buffer and then quit, where ID is the worker ID in the range
+// [0,K-1].
+//
+// The master will read the elements and make sure, in the end, that
+// it has received all the elements in the range [0..K*M-1].
 
-var bufIdx = 0;			// Start of buffer
-var bufSize = 10;		// Number of elements in buffer
-var availIdx = bufIdx+bufSize;	// Number of available values
-var leftIdx = availIdx+1;	// Left end of queue (extract)
-var rightIdx = leftIdx+1;	// Right end of queue (insert)
-var lockIdx = rightIdx+1;	// Lock data
-var nonfullIdx = lockIdx+1;	// 'Nonfull' cond data
-var nonemptyIdx = nonfullIdx+1;	// 'Nonempty' cond data
+var bufIdx = 0;                 // Start of buffer - this must be 0, for simplicity
+var bufSize = 10;               // Number of elements in buffer
+var availIdx = bufIdx+bufSize;  // Number of available values
+var leftIdx = availIdx+1;       // Left end of queue (extract)
+var rightIdx = leftIdx+1;       // Right end of queue (insert)
+var lockIdx = rightIdx+1;       // Lock data
+var nonfullIdx = lockIdx+1;     // 'Nonfull' cond data
+var nonemptyIdx = nonfullIdx+1; // 'Nonempty' cond data
 var iabSize = nonemptyIdx+1;
 var iab = new SharedInt32Array(iabSize);
-var workers = [];
 var numWorkers = 3;
-var numElem = 100;		// Number of elements to produce, per worker
-var check = new Int32Array(numWorkers*numElem);
+var numElem = 100;              // Number of elements to produce, per worker
 var lock;
 var nonfull;
 var nonempty;
 
 function runTest() {
-    for ( var i=0 ; i < numWorkers ; i++ ) {
-	var w = new Worker("test-lock-worker.js");
-	w.onmessage =
-	    function (ev) {
-		if (ev.data === "ready") {
-		    ++readies;
-		    if (readies == numWorkers)
-			consumer();
-		}
-		else
-		    console.log(String(ev.data));
-	    };
-	workers.push(w);
-	w.postMessage([iab.buffer, bufIdx, bufSize, availIdx, leftIdx, rightIdx, lockIdx, nonfullIdx, nonemptyIdx, numElem, i],
-		      [iab.buffer]);
+    var readies = 0;
+    for ( var id=0 ; id < numWorkers ; id++ ) {
+        var w = new Worker("test-lock-worker.js");
+        w.onmessage =
+            function (ev) {
+                console.log(String(ev.data));
+                if (ev.data.indexOf("ready ") == 0) {
+                    ++readies;
+                    if (readies == numWorkers)
+                        setTimeout(consumer, 0);
+                }
+            };
+        w.postMessage([iab.buffer, bufIdx, bufSize, availIdx, leftIdx, rightIdx, lockIdx, nonfullIdx, nonemptyIdx, numElem, numWorkers, id],
+                      [iab.buffer]);
     }
     lock = new Lock(iab, lockIdx);
     nonfull = new Cond(lock, nonfullIdx);
@@ -45,23 +49,29 @@ function runTest() {
 }
 
 function consumer() {
+    console.log("running: master");
+    
+    // Note this code assumes bufIdx == 0
     var consumed = 0;
+    var check = new Int32Array(numWorkers*numElem);
     while (consumed < numWorkers*numElem) {
-	lock.lock();
-	// Wait until there's a value
-	while (iab[availIdx] == 0)
-	    nonempty.wait();
-	var left = iab[leftIdx];
-	var elt = iab[left];
-	iab[leftIdx] = (left+1) % bufSize;
-	check[elt]++;
-	// If a producer might be waiting on a slot, send a wakeup
-	if (bufSize-(--iab[availIdx]) <= numWorkers)
-	    nonfull.wake();
-	lock.unlock();
-	++consumed;
+        lock.lock();
+        // Wait until there's a value
+        while (iab[availIdx] == 0)
+            nonempty.wait();
+        var left = iab[leftIdx];
+        var elt = iab[left];
+        iab[leftIdx] = (left+1) % bufSize;
+        check[elt]++;
+        // If a producer might be waiting on a slot, send a wakeup
+        if (bufSize-(--iab[availIdx]) <= numWorkers)
+            nonfull.wake();
+        lock.unlock();
+        ++consumed;
     }
+    console.log("Checking " + numWorkers*numElem + " elements");
     for ( var i=0 ; i < numWorkers*numElem ; i++ )
-	if (check[i] != 1)
-	    console.log("Failed at element " + i + ": " + check[i]);
+        if (check[i] != 1)
+            console.log("Failed at element " + i + ": " + check[i]);
+    console.log("done: master");
 }

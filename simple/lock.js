@@ -28,15 +28,15 @@ function Lock(sab, index) {
 
 Lock.prototype.lock =
     function () {
-	const sab = this.sab;
-	const index = this.index;
-	var c;
-	if ((c = Atomics.compareExchange(sab, index, 0, 1)) != 0) {
-	    do {
-		if (c == 2 || Atomics.compareExchange(sab, index, 1, 2) != 0)
-		    Atomics.futexWait(sab, index, 2, 0);
-	    } while ((c = Atomics.compareExchange(sab, index, 0, 2)) != 0);
-	}
+        const sab = this.sab;
+        const index = this.index;
+        var c;
+        if ((c = Atomics.compareExchange(sab, index, 0, 1)) != 0) {
+            do {
+                if (c == 2 || Atomics.compareExchange(sab, index, 1, 2) != 0)
+                    Atomics.futexWait(sab, index, 2, 0);
+            } while ((c = Atomics.compareExchange(sab, index, 0, 2)) != 0);
+        }
     };
 
 Lock.prototype.tryLock =
@@ -48,14 +48,14 @@ Lock.prototype.tryLock =
 
 Lock.prototype.unlock =
     function () {
-	const sab = this.sab;
-	const index = this.index;
-	var v0 = Atomics.sub(sab, index, 1);
-	// Wake up a waiter if there are any
-	if (v0 != 1) {
-	    Atomics.store(sab, index, 0);
-	    Atomics.futexWake(sab, index, 1);
-	}
+        const sab = this.sab;
+        const index = this.index;
+        var v0 = Atomics.sub(sab, index, 1);
+        // Wake up a waiter if there are any
+        if (v0 != 1) {
+            Atomics.store(sab, index, 0);
+            Atomics.futexWake(sab, index, 1);
+        }
     };
 
 //////////////////////////////////////////////////////////////////////
@@ -98,19 +98,18 @@ function Cond(lock, index) {
 Cond.prototype.wait =
     function () {
         const seqIndex = this.seqIndex;
-	const sab = this.sab;
+        const sab = this.sab;
         const seq = Atomics.load(sab, seqIndex);
         const lock = this.lock;
-        const lockIndex = lock.index;
         lock.unlock();
-        var r = Atomics.futexWait(sab, seqLoc, seq, Number.POSITIVE_INFINITY);
+        var r = Atomics.futexWait(sab, seqIndex, seq, Number.POSITIVE_INFINITY);
         lock.lock();
     };
 
 Cond.prototype.wake =
     function () {
         const seqIndex = this.seqIndex;
-	const sab = this.sab;
+        const sab = this.sab;
         Atomics.add(this.sab, seqIndex, 1);
         Atomics.futexWake(this.sab, this.seqIndex, 1);
     };
@@ -118,7 +117,7 @@ Cond.prototype.wake =
 Cond.prototype.wakeAll =
     function () {
         const seqIndex = this.seqIndex;
-	const sab = this.sab;
+        const sab = this.sab;
         Atomics.add(sab, seqIndex, 1);
         // Optimization opportunity: only wake one, and requeue the others
         // (in such a way as to obey the locking protocol properly).
