@@ -1,5 +1,5 @@
 importScripts("../src/parlib.js",
-	      "common.js");
+	      "common1.js");
 
 onmessage =
     function (ev) {

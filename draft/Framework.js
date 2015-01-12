@@ -31,13 +31,15 @@ function Master(memSize, numWorkers, workerURL) {
 
     this.flags = flags;		// Worker n uses flags[n*32], where n is pid-1
     this.barrier = new CyclicBarrier().init(numWorkers);
-    this.queue = new BoundedBuffer.ref().init(numWorkers*32);
+    this.queue = new BoundedBuffer.ref().init(numWorkers*32); // Bad: locking
     this.workers = workers;
     this.quiescent = true;
     this.sab = sab;
     this.tasks = {tag:"tasks", ts:[]};	// Explained in the work pump, below
     this.numWorkers = numWorkers;
     this.requestSet = false;	// True if the flag requesting work item acquisition is set
+    this.generators = [];
+    this.handlers = {};
 
     const self = this;
 
@@ -47,13 +49,22 @@ function Master(memSize, numWorkers, workerURL) {
 	    // A worker sent a message for the console.
 	    console.log(ev.data);
 	    break;
+	case "event":
+	    // Result of "post" in the slave.
+	    cb = self.handlers[ev.data[1]];
+	    if (cb)
+		cb(_ObjectFromPointer(ev.data[2])); // Ugly hack - can be we formalize this?
+	    break;
 	case "slotFree":
 	    // A worker obtained a work item and observed that the master wants
 	    // a notification for that.
 	    self._workPump();
 	    break;
 	case "barrierReady":
-	    // All the workers entered the common barrier.
+	    // All the workers entered the common barrier.  There may be a race here: we can't
+	    // call barrierRelease until all the workers have entered the secondary barrier.
+	    // So maybe the secondary barrier is for numWorkers+1 and we all enter it?  That
+	    // entails blocking, which is bad.
 	    var cb = self.barrierCallback;
 	    var cba = self.barrierCallbackArg;
 	    self.barrierCallback = null;
@@ -92,24 +103,19 @@ Master.prototype.start =
     };
 
 
+Master.prototype.addWorkGenerator =
+    function (g) {
+	this.generators.push(g);
+    };
 
-// The appropriate API for a nonblocking master is:
-//
-//   - master.addWorkGenerator(generator)
-//
-// where generator is an ES6 generator ("function*" value) that is
-// invoked to get a work item; it returns the work item or falls off
-// the end, terminating the generator.  The fn may be invoked many
-// times in a row; caching may be useful; note that there is however
-// no guarantee about no other event handlers firing between two
-// invocations.
-// 
-// Also:
-//
-//   - master.addMessageHandler(tag, fn)
-//
-// where fn is called back when a worker has posted a result; posting results
-// in this way is optional.
+Master.prototype.addHandler =
+    function (key, cb) {
+	key = String(key);
+	if (!cb)
+	    delete this.handlers[key];
+	else
+	    this.handlers[key] = cb;
+    };
 
 
 
@@ -338,4 +344,19 @@ function show(m) {
 	console.log(m);
     else
 	postMessage(["message", m]);
+}
+
+
+function WorkItem(key, value) {
+    this.key = String(key);
+    this.value = value;
+}
+
+function WorkItemAll(key, value) {
+    this.key = String(key);
+    this.value = value;
+}
+
+function WorkItemBarrierAll(callback) {
+    this.callback = callback;
 }

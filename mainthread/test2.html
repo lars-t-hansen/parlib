@@ -1,0 +1,14 @@
+<html>
+<body>
+
+<p> A more limited test: the main thread will wait until it knows for
+sure that the worker has been started and is running.  The worker will
+not exit back to its event loop until it is done.  The main thread
+will however exit back to its event loop periodically, to prevent the
+UI from hanging.
+
+<script src="../src/parlib.js"></script>
+<script src="common2.js"></script>
+<script src="master2.js"></script>
+</body>
+</html>

@@ -8,7 +8,7 @@ var coord = new Coord({buffer: buffer, lock: lock, cond: cond, head: 0, tail: 0}
 
 sharedVar0.put(coord);
 
-var worker = new Worker("worker.js");
+var worker = new Worker("worker1.js");
 worker.onmessage =
     function (ev) {
 	console.log(ev.data);

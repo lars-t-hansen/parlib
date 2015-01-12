@@ -3,8 +3,11 @@ The "Framework" package
 
 This is a simple framework for master-and-slave computations where the
 main thread is a callback-driven coordinator and work is farmed out to
-callback-driven workers.  (However synchronization is more flexible, see
-below.)
+callback-driven workers.  (However communication and synchronization
+are more flexible, see below.)
+
+The main constraint on the API (and on the implementation) is that the
+master should never need to block.
 
 One thread, normally this would be the window's main thread, is
 designated as the master, and loads the master program.  Other
@@ -40,7 +43,7 @@ new Master(memSize, numSlaves, slaveURL) => <master>
   slaveURL is a string - the program to load into each slave
 
   NOTE: specifying the memory size and number of slaves is lame, it
-  will change.
+  will (have to) change.
 
 <Master instance>.addWorkGenerator(g)
   Add g as a work generator in the master.  When more work is needed,
@@ -126,19 +129,38 @@ new WorkItem(key, value) => work item
   value, or null.
 
 WorkItemAll(key, value) => work item
-  A work item that all slaves will receive.  The slaves do not
-  synchronize before or after.
+  A work item that all slaves will receive.  This is frequently useful
+  for initialization and completion work.
+
+  When a doAll is inserted into the work queue it creates a break in
+  the queue, in the sense that all items inserted before the doAll
+  will be distributed to workers before the doAll work items, and all
+  items inserted after the doAll will be distributed to workers after
+  the doAll work items.
+
+  However, the slaves do not synchronize before or after the doAll
+  items, so one worker could be receiving a work item created after
+  the doAll before another worker has started processing its doAll
+  item.
 
 WorkItemBarrierAll(callback) => work item
   A work item that all slaves will receive, but not perceive: It will
   make each slave enter a barrier, and when all have entered the
   barrier the callback will be invoked in the master.
 
-  The master must explicitly unblock slaves in a barrier.
+  When a barrier is inserted into the work queue it creates a break in
+  the queue, in the sense that no items inserted before the barrier
+  are processed after the barrier, and no items inserted after the
+  barrier are processed before the barrier.
 
-Work items may be queued before being used and may be modified by the
-framework, and should be considered immutable by the application.
+  The master must explicitly unblock slaves that are waiting in a
+  barrier, using master.barrierRelease().
 
+Work items may be queued internally before being used and may be
+modified by the framework, and should be considered immutable by the
+application and should not be reused.
 
-
-
+Any values carried by the work items should be considered immutable
+until the application knows they are no longer in the work queue
+(which often means waiting until after the next barrier).  They may
+then be reused, of course: they are application-owned data.
