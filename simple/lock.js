@@ -5,27 +5,45 @@
 //
 // Locks.
 //
-// new Lock(sab, index) => lockObj
-// lockObj.lock() => void
-// lockObj.tryLock() => bool
-// lockObj.unlock() => void
-//
-// 'sab' must be an Int32Array mapped onto a SharedArrayBuffer.
-// 'index' must be a valid index in sab, reserved for the lock.
-// sab[index] must be initialized (globally) to 0 before the first lock is created.
+// Locks are JS objects that use some shared memory for private data.
+// The number of shared int32 locations needed is given by
+// Lock.NUMLOCS.  The shared memory for a lock should be initialized
+// once by calling Lock.initialize() on the memory, before
+// constructing the first Lock object in any agent.
 //
 //
-// Lock code taken from http://www.akkadia.org/drepper/futex.pdf
-//
-// 0: unlocked
-// 1: locked with no waiters
-// 2: locked with possible waiters
+// Implementation note:
+// Lock code taken from http://www.akkadia.org/drepper/futex.pdf.
+// Lock states:
+//   0: unlocked
+//   1: locked with no waiters
+//   2: locked with possible waiters
 
+// Create a lock object.
+//
+// 'sab' must be a SharedInt32Array.
+// 'index' must be a valid index in sab, the first of Lock.NUMLOCS reserved for the lock.
 function Lock(sab, index) {
     this.sab = sab;
     this.index = index;
 }
 
+// Number of shared Int32 locations needed by the lock.
+Lock.NUMLOCS = 1;
+
+// Initialize shared memory for a lock, before constructing the
+// worker-local Lock objects on that memory.
+//
+// 'sab' must be a SharedInt32Array.
+// 'index' must be a valid index in sab, the first of Lock.NUMLOCS reserved
+// for the lock.
+Lock.initialize =
+    function (sab, index) {
+	sab[index] = 0;
+    };
+
+// Acquire the lock, or block until we can.  Locking is not recursive:
+// you must not hold the lock when calling this.
 Lock.prototype.lock =
     function () {
         const sab = this.sab;
@@ -39,6 +57,9 @@ Lock.prototype.lock =
         }
     };
 
+// Attempt to acquire the lock, return true if it was acquired, false
+// if not.  Locking is not recursive: you must not hold the lock when
+// calling this.
 Lock.prototype.tryLock =
     function () {
         const sab = this.sab;
@@ -46,6 +67,8 @@ Lock.prototype.tryLock =
         return Atomics.compareExchange(sab, index, 0, 1) == 0;
     };
 
+// Unlock a lock that is held.  Anyone can unlock a lock that is held;
+// nobody can unlock a lock that is not held.
 Lock.prototype.unlock =
     function () {
         const sab = this.sab;
@@ -58,43 +81,49 @@ Lock.prototype.unlock =
         }
     };
 
+
 //////////////////////////////////////////////////////////////////////
 //
 // Condition variables.
 //
-// new Cond(lock, index) => condObj
-// condObj.wait() => void
-// condObj.wake() => void
-// condObj.wakeAll() => void
+// Condition variables are JS objects that use some shared memory for
+// private data.  The number of shared int32 locations needed is given
+// by Cond.NUMLOCS.  The shared memory for a condition variable should
+// be initialized once by calling Cond.initialize() on the memory,
+// before constructing the first Cond object in any agent.
+//
 // 
-// 'index' must be a valid index in lock.sab, reserved for the condition.
-// lock.sab[index] must be initialized (globally) to 0 before the first condition is created.
-// 
-// new Cond(lockObj, index) creates a condition variable that can wait on
-// the lock 'lockObj', and will use lock.sab[index] for bookkeeping.
-//
-// condObj.wait() atomically unlocks its lock (which must be held by the
-// calling thread) and waits for a wakeup on condObj.  If there were waiters
-// on lock then they are woken as the lock is unlocked.
-//
-// condObj.wake() wakes one waiter on cond which will attempt to re-aqcuire
-// the lock that it held as it waited.
-//
-// condObj.wakeAll() wakes all waiters on cond.  They will race to
-// re-acquire the locks they held as they waited; it needn't all be
-// the same locks.
-//
-// The caller of wake and wakeAll must hold the lock during the call.
-//
-// (The condvar code is based on http://locklessinc.com/articles/mutex_cv_futex,
-// though modified because some optimizations in that code don't quite apply.)
+// Implementation note:
+// The condvar code is based on http://locklessinc.com/articles/mutex_cv_futex,
+// though modified because some optimizations in that code don't quite apply.
 
+// Create a condition variable that can wait on a lock.
+//
+// 'lock' is an instance of Lock.
+// 'index' must be a valid index in lock.sab, the first of Cond.NUMLOCS reserved
+// for the condition.
 function Cond(lock, index) {
     this.sab = lock.sab;
     this.seqIndex = index;
     this.lock = lock;
 }
 
+// Number of shared Int32 locations needed by the condition variable.
+Cond.NUMLOCS = 1;
+
+// Initialize shared memory for a condition variable, before
+// constructing the worker-local Cond objects on that memory.
+Cond.initialize =
+    function (sab, index) {
+	sab[index] = 0;
+    };
+
+// Atomically unlocks the cond's lock and wait for a wakeup on the
+// cond.  If there were waiters on lock then they are woken as the
+// lock is unlocked.
+//
+// The caller must hold the lock when calling wait().  When wait()
+// returns the lock will once again be held.
 Cond.prototype.wait =
     function () {
         const seqIndex = this.seqIndex;
@@ -106,6 +135,8 @@ Cond.prototype.wait =
         lock.lock();
     };
 
+// Wakes one waiter on cond.  The cond's lock must be held by the
+// caller of wake().
 Cond.prototype.wake =
     function () {
         const seqIndex = this.seqIndex;
@@ -114,6 +145,8 @@ Cond.prototype.wake =
         Atomics.futexWake(this.sab, this.seqIndex, 1);
     };
 
+// Wakes all waiters on cond.  The cond's lock must be held by the
+// caller of wakeAll().
 Cond.prototype.wakeAll =
     function () {
         const seqIndex = this.seqIndex;

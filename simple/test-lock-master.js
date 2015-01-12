@@ -17,15 +17,19 @@ var availIdx = bufIdx+bufSize;  // Number of available values
 var leftIdx = availIdx+1;       // Left end of queue (extract)
 var rightIdx = leftIdx+1;       // Right end of queue (insert)
 var lockIdx = rightIdx+1;       // Lock data
-var nonfullIdx = lockIdx+1;     // 'Nonfull' cond data
-var nonemptyIdx = nonfullIdx+1; // 'Nonempty' cond data
-var iabSize = nonemptyIdx+1;
-var iab = new SharedInt32Array(iabSize);
+var nonfullIdx = lockIdx+Lock.NUMLOCS;     // 'Nonfull' cond data
+var nonemptyIdx = nonfullIdx+Cond.NUMLOCS; // 'Nonempty' cond data
+var iabSize = nonemptyIdx+Cond.NUMLOCS;
 var numWorkers = 3;
 var numElem = 100;              // Number of elements to produce, per worker
 var lock;
 var nonfull;
 var nonempty;
+
+var iab = new SharedInt32Array(iabSize);
+Lock.initialize(iab, lockIdx);
+Cond.initialize(iab, nonfullIdx);
+Cond.initialize(iab, nonemptyIdx);
 
 function runTest() {
     var readies = 0;
