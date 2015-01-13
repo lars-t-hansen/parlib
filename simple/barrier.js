@@ -44,7 +44,7 @@ Barrier.initialize =
 	Atomics.store(iab, seqLoc, 0);
 	Atomics.store(iab, numAgentsLoc, numAgents);
 
-	return base;
+	return ibase;
     };
 
 // Enter the barrier.  This will block until all agents have entered
