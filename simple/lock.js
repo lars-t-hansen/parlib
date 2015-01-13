@@ -59,7 +59,7 @@ Lock.prototype.lock =
         if ((c = Atomics.compareExchange(iab, stateIdx, 0, 1)) != 0) {
             do {
                 if (c == 2 || Atomics.compareExchange(iab, stateIdx, 1, 2) != 0)
-                    Atomics.futexWait(iab, stateIdx, 2, 0);
+                    Atomics.futexWait(iab, stateIdx, 2, Number.POSITIVE_INFINITY);
             } while ((c = Atomics.compareExchange(iab, stateIdx, 0, 2)) != 0);
         }
     };
