@@ -14,11 +14,13 @@
 // Create a barrier object.
 //
 // 'iab' is a SharedInt32Array.
-// 'base' is the first of Barrier.NUMLOCS slots within iab reserved
+// 'ibase' is the first of Barrier.NUMLOCS slots within iab reserved
 // for the barrier.
-function Barrier(iab, base) {
+//
+// iab and ibase will be exposed on the Barrier.
+function Barrier(iab, ibase) {
     this.iab = iab;
-    this.base = base;
+    this.ibase = ibase;
 }
 
 // Number of shared Int32 locations needed by the barrier.
@@ -27,16 +29,16 @@ Barrier.NUMLOCS = 3;
 // Initialize the shared memory for a barrier.
 //
 // 'iab' is a SharedInt32Array.
-// 'base' is the first of Barrier.NUMLOCS slots within iab reserved
+// 'ibase' is the first of Barrier.NUMLOCS slots within iab reserved
 // for the barrier.
 // 'numAgents' is the number of participants in the barrier.
 //
-// Returns 'base'.
+// Returns 'ibase'.
 Barrier.initialize =
-    function (iab, base, numAgents) {
-	const counterLoc = base;
-	const seqLoc = base+1;
-	const numAgentsLoc = base+2;
+    function (iab, ibase, numAgents) {
+	const counterLoc = ibase;
+	const seqLoc = ibase+1;
+	const numAgentsLoc = ibase+2;
 
 	Atomics.store(iab, counterLoc, numAgents);
 	Atomics.store(iab, seqLoc, 0);
@@ -51,11 +53,11 @@ Barrier.initialize =
 Barrier.prototype.enter =
     function () {
 	const iab = this.iab;
-	const base = this.base;
+	const ibase = this.ibase;
 
-	const counterLoc = base;
-	const seqLoc = base+1;
-	const numAgentsLoc = base+2;
+	const counterLoc = ibase;
+	const seqLoc = ibase+1;
+	const numAgentsLoc = ibase+2;
 
 	if (Atomics.sub(iab, counterLoc, 1) == 1) {
 	    const numAgents = iab[numAgentsLoc];

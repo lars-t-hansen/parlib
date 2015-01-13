@@ -1,5 +1,5 @@
 // Simple, standalone lock and condition variable abstractions.
-// 2015-01-12 / lhansen@mozilla.com
+// 2015-01-13 / lhansen@mozilla.com
 
 //////////////////////////////////////////////////////////////////////
 //
@@ -21,11 +21,13 @@
 
 // Create a lock object.
 //
-// 'sab' must be a SharedInt32Array.
-// 'index' must be a valid index in sab, the first of Lock.NUMLOCS reserved for the lock.
-function Lock(sab, index) {
-    this.sab = sab;
-    this.index = index;
+// 'iab' must be a SharedInt32Array.
+// 'ibase' must be a valid index in iab, the first of Lock.NUMLOCS reserved for the lock.
+//
+// iab and ibase will be exposed on Lock.
+function Lock(iab, ibase) {
+    this.iab = iab;
+    this.ibase = ibase;
 }
 
 // Number of shared Int32 locations needed by the lock.
@@ -34,29 +36,29 @@ Lock.NUMLOCS = 1;
 // Initialize shared memory for a lock, before constructing the
 // worker-local Lock objects on that memory.
 //
-// 'sab' must be a SharedInt32Array.
-// 'index' must be a valid index in sab, the first of Lock.NUMLOCS reserved
+// 'iab' must be a SharedInt32Array.
+// 'ibase' must be a valid index in iab, the first of Lock.NUMLOCS reserved
 // for the lock.
 //
-// Returns 'index'.
+// Returns 'ibase'.
 Lock.initialize =
-    function (sab, index) {
-	sab[index] = 0;
-	return index;
+    function (iab, ibase) {
+	iab[ibase] = 0;
+	return ibase;
     };
 
 // Acquire the lock, or block until we can.  Locking is not recursive:
 // you must not hold the lock when calling this.
 Lock.prototype.lock =
     function () {
-        const sab = this.sab;
-        const index = this.index;
+        const iab = this.iab;
+        const stateIdx = this.ibase;
         var c;
-        if ((c = Atomics.compareExchange(sab, index, 0, 1)) != 0) {
+        if ((c = Atomics.compareExchange(iab, stateIdx, 0, 1)) != 0) {
             do {
-                if (c == 2 || Atomics.compareExchange(sab, index, 1, 2) != 0)
-                    Atomics.futexWait(sab, index, 2, 0);
-            } while ((c = Atomics.compareExchange(sab, index, 0, 2)) != 0);
+                if (c == 2 || Atomics.compareExchange(iab, stateIdx, 1, 2) != 0)
+                    Atomics.futexWait(iab, stateIdx, 2, 0);
+            } while ((c = Atomics.compareExchange(iab, stateIdx, 0, 2)) != 0);
         }
     };
 
@@ -65,22 +67,22 @@ Lock.prototype.lock =
 // calling this.
 Lock.prototype.tryLock =
     function () {
-        const sab = this.sab;
-        const index = this.index;
-        return Atomics.compareExchange(sab, index, 0, 1) == 0;
+        const iab = this.iab;
+        const stateIdx = this.ibase;
+        return Atomics.compareExchange(iab, stateIdx, 0, 1) == 0;
     };
 
 // Unlock a lock that is held.  Anyone can unlock a lock that is held;
 // nobody can unlock a lock that is not held.
 Lock.prototype.unlock =
     function () {
-        const sab = this.sab;
-        const index = this.index;
-        var v0 = Atomics.sub(sab, index, 1);
+        const iab = this.iab;
+        const stateIdx = this.ibase;
+        var v0 = Atomics.sub(iab, stateIdx, 1);
         // Wake up a waiter if there are any
         if (v0 != 1) {
-            Atomics.store(sab, index, 0);
-            Atomics.futexWake(sab, index, 1);
+            Atomics.store(iab, stateIdx, 0);
+            Atomics.futexWake(iab, stateIdx, 1);
         }
     };
 
@@ -103,11 +105,13 @@ Lock.prototype.unlock =
 // Create a condition variable that can wait on a lock.
 //
 // 'lock' is an instance of Lock.
-// 'index' must be a valid index in lock.sab, the first of Cond.NUMLOCS reserved
+// 'ibase' must be a valid index in lock.iab, the first of Cond.NUMLOCS reserved
 // for the condition.
-function Cond(lock, index) {
-    this.sab = lock.sab;
-    this.seqIndex = index;
+//
+// lock.iab and ibase will be exposed on Cond.
+function Cond(lock, ibase) {
+    this.iab = lock.iab;
+    this.ibase = ibase;
     this.lock = lock;
 }
 
@@ -117,11 +121,11 @@ Cond.NUMLOCS = 1;
 // Initialize shared memory for a condition variable, before
 // constructing the worker-local Cond objects on that memory.
 //
-// Returns 'index'.
+// Returns 'ibase'.
 Cond.initialize =
-    function (sab, index) {
-	sab[index] = 0;
-	return index;
+    function (iab, ibase) {
+	iab[ibase] = 0;
+	return ibase;
     };
 
 // Atomically unlocks the cond's lock and wait for a wakeup on the
@@ -132,12 +136,12 @@ Cond.initialize =
 // returns the lock will once again be held.
 Cond.prototype.wait =
     function () {
-        const seqIndex = this.seqIndex;
-        const sab = this.sab;
-        const seq = Atomics.load(sab, seqIndex);
+        const seqIndex = this.ibase;
+        const iab = this.iab;
+        const seq = Atomics.load(iab, seqIndex);
         const lock = this.lock;
         lock.unlock();
-        var r = Atomics.futexWait(sab, seqIndex, seq, Number.POSITIVE_INFINITY);
+        var r = Atomics.futexWait(iab, seqIndex, seq, Number.POSITIVE_INFINITY);
         lock.lock();
     };
 
@@ -145,20 +149,20 @@ Cond.prototype.wait =
 // caller of wake().
 Cond.prototype.wake =
     function () {
-        const seqIndex = this.seqIndex;
-        const sab = this.sab;
-        Atomics.add(this.sab, seqIndex, 1);
-        Atomics.futexWake(this.sab, this.seqIndex, 1);
+        const seqIndex = this.ibase;
+        const iab = this.iab;
+        Atomics.add(this.iab, seqIndex, 1);
+        Atomics.futexWake(this.iab, this.seqIndex, 1);
     };
 
 // Wakes all waiters on cond.  The cond's lock must be held by the
 // caller of wakeAll().
 Cond.prototype.wakeAll =
     function () {
-        const seqIndex = this.seqIndex;
-        const sab = this.sab;
-        Atomics.add(sab, seqIndex, 1);
+        const seqIndex = this.ibase;
+        const iab = this.iab;
+        Atomics.add(iab, seqIndex, 1);
         // Optimization opportunity: only wake one, and requeue the others
         // (in such a way as to obey the locking protocol properly).
-        Atomics.futexWake(sab, seqIndex, 65535);
+        Atomics.futexWake(iab, seqIndex, 65535);
     };

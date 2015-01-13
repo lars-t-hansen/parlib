@@ -1,7 +1,7 @@
 // Simple multi-producer multi-consumer bounded buffer.
 // 2015-01-13 / lhansen@mozilla.com
 //
-// NOTE: you must load lock.js before loading this file.
+// NOTE: you must load lock.js before this file.
 
 //////////////////////////////////////////////////////////////////////
 //
@@ -32,13 +32,15 @@
 // The five parameters should be the same in all agents; though iab
 // and dab will reference different objects they should reference the
 // same underlying shared memory at the same buffer offsets.
+//
+// iab, ibase, dab, dbase, and dsize will be exposed on the Barrier.
 
 function Buffer(iab, ibase, dab, dbase, dsize) {
     this.iab = iab;
+    this.ibase = ibase;
     this.dab = dab;
     this.dbase = dbase;
     this.dsize = dsize;
-    this.ibase = ibase;
     var  lockIdx = ibase+5;
     var  nonemptyIdx = lockIdx + Lock.NUMLOCS;
     var  nonfullIdx = nonemptyIdx + Cond.NUMLOCS;
@@ -69,6 +71,8 @@ Buffer.initialize =
 	Lock.initialize(iab, lockIdx);
 	Cond.initialize(iab, nonemptyIdx);
 	Cond.initialize(iab, nonfullIdx);
+
+	return ibase;
     };
 
 // Remove one element, wait until one is available.
