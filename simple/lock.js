@@ -19,6 +19,8 @@
 //   1: locked with no waiters
 //   2: locked with possible waiters
 
+"use strict";
+
 // Create a lock object.
 //
 // 'iab' must be a SharedInt32Array.
@@ -136,8 +138,8 @@ Cond.initialize =
 // returns the lock will once again be held.
 Cond.prototype.wait =
     function () {
-        const seqIndex = this.ibase;
         const iab = this.iab;
+        const seqIndex = this.ibase;
         const seq = Atomics.load(iab, seqIndex);
         const lock = this.lock;
         lock.unlock();
@@ -149,18 +151,18 @@ Cond.prototype.wait =
 // caller of wake().
 Cond.prototype.wake =
     function () {
-        const seqIndex = this.ibase;
         const iab = this.iab;
-        Atomics.add(this.iab, seqIndex, 1);
-        Atomics.futexWake(this.iab, this.seqIndex, 1);
+        const seqIndex = this.ibase;
+        Atomics.add(iab, seqIndex, 1);
+        Atomics.futexWake(iab, seqIndex, 1);
     };
 
 // Wakes all waiters on cond.  The cond's lock must be held by the
 // caller of wakeAll().
 Cond.prototype.wakeAll =
     function () {
-        const seqIndex = this.ibase;
         const iab = this.iab;
+        const seqIndex = this.ibase;
         Atomics.add(iab, seqIndex, 1);
         // Optimization opportunity: only wake one, and requeue the others
         // (in such a way as to obey the locking protocol properly).
