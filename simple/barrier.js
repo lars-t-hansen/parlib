@@ -30,6 +30,8 @@ Barrier.NUMLOCS = 3;
 // 'base' is the first of Barrier.NUMLOCS slots within iab reserved
 // for the barrier.
 // 'numAgents' is the number of participants in the barrier.
+//
+// Returns 'base'.
 Barrier.initialize =
     function (iab, base, numAgents) {
 	const counterLoc = base;
@@ -39,6 +41,8 @@ Barrier.initialize =
 	Atomics.store(iab, counterLoc, numAgents);
 	Atomics.store(iab, seqLoc, 0);
 	Atomics.store(iab, numAgentsLoc, numAgents);
+
+	return base;
     };
 
 // Enter the barrier.  This will block until all agents have entered

@@ -37,9 +37,12 @@ Lock.NUMLOCS = 1;
 // 'sab' must be a SharedInt32Array.
 // 'index' must be a valid index in sab, the first of Lock.NUMLOCS reserved
 // for the lock.
+//
+// Returns 'index'.
 Lock.initialize =
     function (sab, index) {
 	sab[index] = 0;
+	return index;
     };
 
 // Acquire the lock, or block until we can.  Locking is not recursive:
@@ -113,9 +116,12 @@ Cond.NUMLOCS = 1;
 
 // Initialize shared memory for a condition variable, before
 // constructing the worker-local Cond objects on that memory.
+//
+// Returns 'index'.
 Cond.initialize =
     function (sab, index) {
 	sab[index] = 0;
+	return index;
     };
 
 // Atomically unlocks the cond's lock and wait for a wakeup on the
