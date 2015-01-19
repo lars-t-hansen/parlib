@@ -46,12 +46,14 @@
 
 function MasterBarrier(iab, ibase, ID, numWorkers, callback) {
     this.iab = iab;
-    this.counterLoc = ibase;
-    this.seqLoc = ibase+1;
+    this.ibase = ibase;
     this.numWorkers = numWorkers;
 
-    iab[this.counterLoc] = numWorkers;
-    iab[this.seqLoc] = 0;
+    const counterLoc = ibase;
+    const seqLoc = ibase+1;
+
+    iab[counterLoc] = numWorkers;
+    iab[seqLoc] = 0;
     MasterBarrier._callbacks[ID] = callback;
 }
 
@@ -83,7 +85,10 @@ MasterBarrier.dispatch =
 
 MasterBarrier.prototype.isQuiescent =
     function () {
-	return Atomics.load(this.iab, this.counterLoc) == 0;
+	const iab = this.iab;
+	const counterLoc = this.ibase;
+
+	return Atomics.load(iab, counterLoc) == 0;
     };
 
 // If the workers are not all waiting in the barrier then return false.
@@ -99,23 +104,28 @@ MasterBarrier.prototype.release =
     function () {
 	if (!this.isQuiescent())
 	    return false;
-	Atomics.store(this.iab, this.counterLoc, this.numWorkers);
-	Atomics.add(this.iab, this.seqLoc, 1);
-	Atomics.futexWake(this.iab, this.seqLoc, this.numWorkers);
+
+	const iab = this.iab;
+	const counterLoc = this.ibase;
+	const seqLoc = counterLoc+1;
+	const numWorkers = this.numWorkers;
+
+	Atomics.store(iab, counterLoc, numWorkers);
+	Atomics.add(iab, seqLoc, 1);
+	Atomics.futexWake(iab, seqLoc, numWorkers);
 	return true;
     };
 
 // Create the worker side of a barrier.
 //
-// - 'ID' identifies the barrier globally
 // - 'iab' is a SharedInt32Array
 // - 'ibase' is the first of several consecutive locations within 'iab'
+// - 'ID' identifies the barrier globally
 
 function WorkerBarrier(iab, ibase, ID) {
-    this.ID = ID;
     this.iab = iab;
-    this.counterLoc = ibase;
-    this.seqLoc = ibase+1;
+    this.ibase = ibase;
+    this.ID = ID;
 }
 
 // Enter the barrier.  This call will block until the master releases
@@ -123,10 +133,15 @@ function WorkerBarrier(iab, ibase, ID) {
 
 WorkerBarrier.prototype.enter =
     function () {
-	const seq = Atomics.load(this.iab, this.seqLoc);
-	if (Atomics.sub(this.iab, this.counterLoc, 1) == 1)
-	    postMessage(["MasterBarrier.dispatch", this.ID]);
-	Atomics.futexWait(this.iab, this.seqLoc, seq, Number.POSITIVE_INFINITY);
+	const iab = this.iab;
+	const counterLoc = this.ibase;
+	const seqLoc = counterLoc+1;
+	const ID = this.ID;
+
+	const seq = Atomics.load(iab, seqLoc);
+	if (Atomics.sub(iab, counterLoc, 1) == 1)
+	    postMessage(["MasterBarrier.dispatch", ID]);
+	Atomics.futexWait(iab, seqLoc, seq, Number.POSITIVE_INFINITY);
     };
 
 
