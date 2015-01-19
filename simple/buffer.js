@@ -1,5 +1,5 @@
 // Simple multi-producer multi-consumer bounded buffer.
-// 2015-01-13 / lhansen@mozilla.com
+// 2015-01-19 / lhansen@mozilla.com
 //
 // NOTE: you must load lock.js before this file.
 
@@ -14,11 +14,11 @@
 // initialized once by calling Buffer.initialize() on the memory,
 // before constructing the first Buffer object in any agent.
 //
-// Implementation note:
-// The motivation for tracking the number of waiting consumers and
-// producers is to avoid calling cond.wake on every insert.  It
-// is possible this optimization should be moved into the condition
-// variable.
+// Implementation notes:
+// - The motivation for tracking the number of waiting consumers and
+//   producers is to avoid calling cond.wake on every insert.
+// - This buffer does not try to be clever about contention or lock
+//   overhead and so probably doesn't scale to very many CPUs.
 
 // Create a Buffer object.
 //
@@ -29,9 +29,10 @@
 // 'dbase' is the first location in 'dab' for buffer data.
 // 'dsize' is the number of locations in 'dab' for buffer data.
 //
-// The five parameters should be the same in all agents; though iab
-// and dab will reference different objects they should reference the
-// same underlying shared memory at the same buffer offsets.
+// The five parameters should be the same in all agents.  Also, though
+// iab and dab will reference different JS objects in different agents
+// they should ultimately reference the same underlying shared memory
+// at the same buffer offsets.
 //
 // iab, ibase, dab, dbase, and dsize will be exposed on the Barrier.
 
@@ -45,13 +46,14 @@ function Buffer(iab, ibase, dab, dbase, dsize) {
     var  nonemptyIdx = lockIdx + Lock.NUMLOCS;
     var  nonfullIdx = nonemptyIdx + Cond.NUMLOCS;
     this.lock = new Lock(iab, lockIdx);
-    this.nonempty = new Cond(lock, nonemptyIdx);
-    this.nonfull = new Cond(lock, nonfullIdx);
+    this.nonempty = new Cond(this.lock, nonemptyIdx);
+    this.nonfull = new Cond(this.lock, nonfullIdx);
 }
 
 Buffer.NUMLOCS = Lock.NUMLOCS + 2*Cond.NUMLOCS + 5;
 
-// Initialize shared memory for a Buffer object.
+// Initialize shared memory for a Buffer object (its private memory,
+// not the buffer memory proper).
 //
 // 'iab' is a SharedInt32Array, for book-keeping data.
 // 'ibase' is the first of Buffer.NUMLOCS locations in iab reserved
@@ -60,11 +62,17 @@ Buffer.NUMLOCS = Lock.NUMLOCS + 2*Cond.NUMLOCS + 5;
 // Returns 'ibase'.
 Buffer.initialize =
     function (iab, ibase) {
-	iab[ibase] = 0;		// left
-	iab[ibase+1] = 0;	// right
-	iab[ibase+2] = 0;	// avail
-	iab[ibase+3] = 0;	// producersWaiting
-	iab[ibase+4] = 0;	// consumersWaiting
+	const leftIdx = ibase;
+	const rightIdx = ibase+1;
+	const availIdx = ibase+2;
+	const producersWaitingIdx = ibase+3;
+	const consumersWaitingIdx = ibase+4;
+
+	iab[leftIdx] = 0;
+	iab[rightIdx] = 0;
+	iab[availIdx] = 0;
+	iab[producersWaitingIdx] = 0;
+	iab[consumersWaitingIdx] = 0;
 	var lockIdx = ibase+5;
 	var nonemptyIdx = lockIdx + Lock.NUMLOCS;
 	var nonfullIdx = nonemptyIdx + Cond.NUMLOCS;
@@ -79,10 +87,11 @@ Buffer.initialize =
 Buffer.prototype.take =
     function (index) {
 	const iab = this.iab;
-	const leftIdx = this.ibase;
-	const availIdx = leftIdx+2;
-	const producersWaitingIdx = leftIdx+3;
-	const consumersWaitingIdx = leftIdx+4;
+	const ibase = this.ibase;
+	const leftIdx = ibase;
+	const availIdx = ibase+2;
+	const producersWaitingIdx = ibase+3;
+	const consumersWaitingIdx = ibase+4;
 	
         this.lock.lock();
         while (iab[availIdx] == 0) {
@@ -93,6 +102,7 @@ Buffer.prototype.take =
         var left = iab[leftIdx];
         var value = this.dab[this.dbase+left];
         iab[leftIdx] = (left+1) % this.dsize;
+	iab[availIdx]--;
 	if (iab[producersWaitingIdx] > 0)
 	    this.nonfull.wake();
         this.lock.unlock();
@@ -101,24 +111,24 @@ Buffer.prototype.take =
 
 // Insert one element, wait until space is available.
 Buffer.prototype.put =
-    function (index, value) {
+    function (value) {
 	const iab = this.iab;
 	const ibase = this.ibase;
 	const rightIdx = ibase+1;
 	const availIdx = ibase+2;
 	const producersWaitingIdx = ibase+3;
 	const consumersWaitingIdx = ibase+4;
-	const dsize = this.dsize;
 
         this.lock.lock();
-        while (iab[availIdx] == dsize) {
+        while (iab[availIdx] == this.dsize) {
 	    iab[producersWaitingIdx]++;
             this.nonfull.wait();
 	    iab[producersWaitingIdx]--;
 	}
         var right = iab[rightIdx];
         this.dab[this.dbase+right] = value;
-        iab[rightIdx] = (right+1) % dsize;
+        iab[rightIdx] = (right+1) % this.dsize;
+	iab[availIdx]++;
 	if (iab[consumersWaitingIdx] > 0)
             this.nonempty.wake();
         this.lock.unlock();
