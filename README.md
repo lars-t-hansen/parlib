@@ -1,10 +1,7 @@
 parlib
 ======
 
-This repo provides two different libraries for use with SharedArrayBuffer and SharedTypedArray.
-
-* In simple/ there are very simple control abstractions (Lock, Cond, Barrier, eventually others) that assume only minimal things about the client code but provide very little help with data abstraction.
-* In src/ there is an elaborate shared-object-heap abstraction with data abstraction facilities and many utilities.  This is experimental but somewhat stable.
+In src/ there is an elaborate shared-object-heap abstraction with data abstraction facilities and many utilities.  This is experimental but somewhat stable.  Use with caution.  An alternative, much simpler library, is in https://github.com/lars-t-hansen/parlib-simple.
 
 There are many demos here that use the shared-object-heap library:
 
