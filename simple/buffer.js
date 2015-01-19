@@ -3,6 +3,8 @@
 //
 // NOTE: you must load lock.js before this file.
 
+"use strict";
+
 //////////////////////////////////////////////////////////////////////
 //
 // Bounded buffers.
@@ -37,6 +39,10 @@
 // iab, ibase, dab, dbase, and dsize will be exposed on the Barrier.
 
 function Buffer(iab, ibase, dab, dbase, dsize) {
+    // TODO: could also check that dab is any SharedTypedArray and
+    // that dbase and dsize are in bounds.
+    if (!(iab instanceof SharedInt32Array && ibase|0 == ibase && ibase >= 0 && ibase+Buffer.NUMINTS <= iab.length))
+	throw new Error("Bad arguments to Buffer constructor: " + iab + " " + ibase);
     this.iab = iab;
     this.ibase = ibase;
     this.dab = dab;
@@ -62,17 +68,19 @@ Buffer.NUMINTS = Lock.NUMINTS + 2*Cond.NUMINTS + 5;
 // Returns 'ibase'.
 Buffer.initialize =
     function (iab, ibase) {
+	if (!(iab instanceof SharedInt32Array && ibase|0 == ibase && ibase >= 0 && ibase+Buffer.NUMINTS <= iab.length))
+	    throw new Error("Bad arguments to Buffer initializer: " + iab + " " + ibase);
 	const leftIdx = ibase;
 	const rightIdx = ibase+1;
 	const availIdx = ibase+2;
 	const producersWaitingIdx = ibase+3;
 	const consumersWaitingIdx = ibase+4;
 
-	iab[leftIdx] = 0;
-	iab[rightIdx] = 0;
-	iab[availIdx] = 0;
-	iab[producersWaitingIdx] = 0;
-	iab[consumersWaitingIdx] = 0;
+	Atomics.store(iab, leftIdx, 0);
+	Atomics.store(iab, rightIdx, 0);
+	Atomics.store(iab, availIdx, 0);
+	Atomics.store(iab, producersWaitingIdx, 0);
+	Atomics.store(iab, consumersWaitingIdx, 0);
 	var lockIdx = ibase+5;
 	var nonemptyIdx = lockIdx + Lock.NUMINTS;
 	var nonfullIdx = nonemptyIdx + Cond.NUMINTS;

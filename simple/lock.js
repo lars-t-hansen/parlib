@@ -28,6 +28,8 @@
 //
 // iab and ibase will be exposed on Lock.
 function Lock(iab, ibase) {
+    if (!(iab instanceof SharedInt32Array && ibase|0 == ibase && ibase >= 0 && ibase+Lock.NUMINTS <= iab.length))
+	throw new Error("Bad arguments to Lock constructor: " + iab + " " + ibase);
     this.iab = iab;
     this.ibase = ibase;
 }
@@ -45,7 +47,9 @@ Lock.NUMINTS = 1;
 // Returns 'ibase'.
 Lock.initialize =
     function (iab, ibase) {
-	iab[ibase] = 0;
+	if (!(iab instanceof SharedInt32Array && ibase|0 == ibase && ibase >= 0 && ibase+Lock.NUMINTS <= iab.length))
+	    throw new Error("Bad arguments to Lock initializer: " + iab + " " + ibase);
+	Atomics.store(iab, ibase, 0);
 	return ibase;
     };
 
@@ -88,6 +92,10 @@ Lock.prototype.unlock =
         }
     };
 
+Lock.prototype.toString =
+    function () {
+	return "Lock:{ibase:" + this.ibase +"}";
+    };
 
 //////////////////////////////////////////////////////////////////////
 //
@@ -112,6 +120,8 @@ Lock.prototype.unlock =
 //
 // lock.iab and ibase will be exposed on Cond.
 function Cond(lock, ibase) {
+    if (!(lock instanceof Lock && ibase|0 == ibase && ibase >= 0 && ibase+Cond.NUMINTS <= lock.iab.length))
+	throw new Error("Bad arguments to Cond constructor: " + lock + " " + ibase);
     this.iab = lock.iab;
     this.ibase = ibase;
     this.lock = lock;
@@ -126,7 +136,9 @@ Cond.NUMINTS = 1;
 // Returns 'ibase'.
 Cond.initialize =
     function (iab, ibase) {
-	iab[ibase] = 0;
+	if (!(iab instanceof SharedInt32Array && ibase|0 == ibase && ibase >= 0 && ibase+Cond.NUMINTS <= iab.length))
+	    throw new Error("Bad arguments to Cond initializer: " + iab + " " + ibase);
+	Atomics.store(iab, ibase, 0);
 	return ibase;
     };
 
@@ -167,4 +179,9 @@ Cond.prototype.wakeAll =
         // Optimization opportunity: only wake one, and requeue the others
         // (in such a way as to obey the locking protocol properly).
         Atomics.futexWake(iab, seqIndex, 65535);
+    };
+
+Cond.prototype.toString =
+    function () {
+	return "Cond:{ibase:" + this.ibase +"}";
     };

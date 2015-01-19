@@ -1,5 +1,5 @@
 // A simple barrier sync.
-// 2015-01-12 / lhansen@mozilla.com
+// 2015-01-19 / lhansen@mozilla.com
 
 //////////////////////////////////////////////////////////////////////
 //
@@ -19,6 +19,8 @@
 //
 // iab and ibase will be exposed on the Barrier.
 function Barrier(iab, ibase) {
+    if (!(iab instanceof SharedInt32Array && ibase|0 == ibase && ibase >= 0 && ibase+Barrier.NUMINTS <= iab.length))
+	throw new Error("Bad arguments to Barrier constructor: " + iab + " " + ibase);
     this.iab = iab;
     this.ibase = ibase;
 }
@@ -36,6 +38,9 @@ Barrier.NUMINTS = 3;
 // Returns 'ibase'.
 Barrier.initialize =
     function (iab, ibase, numAgents) {
+	if (!(iab instanceof SharedInt32Array && ibase|0 == ibase && ibase >= 0 && ibase+Barrier.NUMINTS <= iab.length && numAgents|0 == numAgents))
+	    throw new Error("Bad arguments to Barrier initializer: " + iab + " " + ibase + " " + numAgents);
+
 	const counterLoc = ibase;
 	const seqLoc = ibase+1;
 	const numAgentsLoc = ibase+2;
