@@ -37,7 +37,7 @@ Once the memory has been allocated you must call the constructor's
 
 ```js
 Lock.initialize(mySharedInt32Array, lockLoc);
-``
+```
 
 Finally, the data type is instantiated (several times, one in each
 agent) using *new*:
