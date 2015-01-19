@@ -52,7 +52,7 @@ With the allocator, allocation and initialization are easily combined,
 since `initialize()` returns its second argument:
 
 ```js
-var loc = Lock.initialize(alloc.Int32Array, alloc.allocInt32(Lock.NUMLOCS)));
+var lockLoc = Lock.initialize(alloc.Int32Array, alloc.allocInt32(Lock.NUMLOCS)));
 ```
 
 Other reasons for using the allocator is that it works across agents,
