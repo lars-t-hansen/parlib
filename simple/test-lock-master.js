@@ -17,9 +17,9 @@ var availIdx = bufIdx+bufSize;  // Number of available values
 var leftIdx = availIdx+1;       // Left end of queue (extract)
 var rightIdx = leftIdx+1;       // Right end of queue (insert)
 var lockIdx = rightIdx+1;       // Lock data
-var nonfullIdx = lockIdx+Lock.NUMLOCS;     // 'Nonfull' cond data
-var nonemptyIdx = nonfullIdx+Cond.NUMLOCS; // 'Nonempty' cond data
-var iabSize = nonemptyIdx+Cond.NUMLOCS;
+var nonfullIdx = lockIdx+Lock.NUMINTS;     // 'Nonfull' cond data
+var nonemptyIdx = nonfullIdx+Cond.NUMINTS; // 'Nonempty' cond data
+var iabSize = nonemptyIdx+Cond.NUMINTS;
 var numWorkers = 3;
 var numElem = 100;              // Number of elements to produce, per worker
 var lock;

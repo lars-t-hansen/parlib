@@ -7,7 +7,7 @@
 //
 // Locks are JS objects that use some shared memory for private data.
 // The number of shared int32 locations needed is given by
-// Lock.NUMLOCS.  The shared memory for a lock should be initialized
+// Lock.NUMINTS.  The shared memory for a lock should be initialized
 // once by calling Lock.initialize() on the memory, before
 // constructing the first Lock object in any agent.
 //
@@ -24,7 +24,7 @@
 // Create a lock object.
 //
 // 'iab' must be a SharedInt32Array.
-// 'ibase' must be a valid index in iab, the first of Lock.NUMLOCS reserved for the lock.
+// 'ibase' must be a valid index in iab, the first of Lock.NUMINTS reserved for the lock.
 //
 // iab and ibase will be exposed on Lock.
 function Lock(iab, ibase) {
@@ -33,13 +33,13 @@ function Lock(iab, ibase) {
 }
 
 // Number of shared Int32 locations needed by the lock.
-Lock.NUMLOCS = 1;
+Lock.NUMINTS = 1;
 
 // Initialize shared memory for a lock, before constructing the
 // worker-local Lock objects on that memory.
 //
 // 'iab' must be a SharedInt32Array.
-// 'ibase' must be a valid index in iab, the first of Lock.NUMLOCS reserved
+// 'ibase' must be a valid index in iab, the first of Lock.NUMINTS reserved
 // for the lock.
 //
 // Returns 'ibase'.
@@ -95,7 +95,7 @@ Lock.prototype.unlock =
 //
 // Condition variables are JS objects that use some shared memory for
 // private data.  The number of shared int32 locations needed is given
-// by Cond.NUMLOCS.  The shared memory for a condition variable should
+// by Cond.NUMINTS.  The shared memory for a condition variable should
 // be initialized once by calling Cond.initialize() on the memory,
 // before constructing the first Cond object in any agent.
 //
@@ -107,7 +107,7 @@ Lock.prototype.unlock =
 // Create a condition variable that can wait on a lock.
 //
 // 'lock' is an instance of Lock.
-// 'ibase' must be a valid index in lock.iab, the first of Cond.NUMLOCS reserved
+// 'ibase' must be a valid index in lock.iab, the first of Cond.NUMINTS reserved
 // for the condition.
 //
 // lock.iab and ibase will be exposed on Cond.
@@ -118,7 +118,7 @@ function Cond(lock, ibase) {
 }
 
 // Number of shared Int32 locations needed by the condition variable.
-Cond.NUMLOCS = 1;
+Cond.NUMINTS = 1;
 
 // Initialize shared memory for a condition variable, before
 // constructing the worker-local Cond objects on that memory.

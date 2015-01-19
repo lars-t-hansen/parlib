@@ -7,14 +7,14 @@
 //
 // Barriers are JS objects that use some shared memory for private
 // data.  The number of shared int32 locations needed is given by
-// Barrier.NUMLOCS.  The shared memory for a barrier should be
+// Barrier.NUMINTS.  The shared memory for a barrier should be
 // initialized once by calling Barrier.initialize() on the memory,
 // before constructing the first Barrier object in any agent.
 
 // Create a barrier object.
 //
 // 'iab' is a SharedInt32Array.
-// 'ibase' is the first of Barrier.NUMLOCS slots within iab reserved
+// 'ibase' is the first of Barrier.NUMINTS slots within iab reserved
 // for the barrier.
 //
 // iab and ibase will be exposed on the Barrier.
@@ -24,12 +24,12 @@ function Barrier(iab, ibase) {
 }
 
 // Number of shared Int32 locations needed by the barrier.
-Barrier.NUMLOCS = 3;
+Barrier.NUMINTS = 3;
 
 // Initialize the shared memory for a barrier.
 //
 // 'iab' is a SharedInt32Array.
-// 'ibase' is the first of Barrier.NUMLOCS slots within iab reserved
+// 'ibase' is the first of Barrier.NUMINTS slots within iab reserved
 // for the barrier.
 // 'numAgents' is the number of participants in the barrier.
 //

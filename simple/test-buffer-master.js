@@ -13,7 +13,7 @@
 var qIdx = 0;                 // Start of buffer
 var qSize = 10;               // Number of elements in buffer
 var bufferIdx = qIdx+qSize;
-var iabSize = bufferIdx+Buffer.NUMLOCS;
+var iabSize = bufferIdx+Buffer.NUMINTS;
 var numWorkers = 3;
 var numElem = 100;              // Number of elements to produce, per worker
 var q;

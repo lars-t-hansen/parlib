@@ -24,12 +24,12 @@ same piece of shared memory.
 
 You can allocate the memory yourself, or use the provided allocator.
 In either case the number of shared int32 locations needed for the
-data type is given by the constructor's `NUMLOCS` property, eg,
-`Lock.NUMLOCS`.
+data type is given by the constructor's `NUMINTS` property, eg,
+`Lock.NUMINTS`.
 
 ```js
 var lockLoc = myInt32AllocPointer;
-myInt32AllocPointer += Lock.NUMLOCS;
+myInt32AllocPointer += Lock.NUMINTS;
 ```
 
 Once the memory has been allocated you must call the constructor's
@@ -52,7 +52,7 @@ With the allocator, allocation and initialization are easily combined,
 since `initialize()` returns its second argument:
 
 ```js
-var lockLoc = Lock.initialize(alloc.Int32Array, alloc.allocInt32(Lock.NUMLOCS)));
+var lockLoc = Lock.initialize(alloc.Int32Array, alloc.allocInt32(Lock.NUMINTS)));
 ```
 
 Other reasons for using the allocator is that it works across agents,

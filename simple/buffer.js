@@ -9,7 +9,7 @@
 //
 // Bounded buffers are JS objects that use some shared memory for
 // private data.  The number of shared int32 locations needed is given
-// by Buffer.NUMLOCS; this is separate from data needed for buffer
+// by Buffer.NUMINTS; this is separate from data needed for buffer
 // value storage.  The shared private memory for a buffer should be
 // initialized once by calling Buffer.initialize() on the memory,
 // before constructing the first Buffer object in any agent.
@@ -23,7 +23,7 @@
 // Create a Buffer object.
 //
 // 'iab' is a SharedInt32Array, for book-keeping data.
-// 'ibase' is the first of Buffer.NUMLOCS locations in iab reserved
+// 'ibase' is the first of Buffer.NUMINTS locations in iab reserved
 // for this Buffer.
 // 'dab' is a SharedTypedArray, for the buffer data.
 // 'dbase' is the first location in 'dab' for buffer data.
@@ -43,20 +43,20 @@ function Buffer(iab, ibase, dab, dbase, dsize) {
     this.dbase = dbase;
     this.dsize = dsize;
     var  lockIdx = ibase+5;
-    var  nonemptyIdx = lockIdx + Lock.NUMLOCS;
-    var  nonfullIdx = nonemptyIdx + Cond.NUMLOCS;
+    var  nonemptyIdx = lockIdx + Lock.NUMINTS;
+    var  nonfullIdx = nonemptyIdx + Cond.NUMINTS;
     this.lock = new Lock(iab, lockIdx);
     this.nonempty = new Cond(this.lock, nonemptyIdx);
     this.nonfull = new Cond(this.lock, nonfullIdx);
 }
 
-Buffer.NUMLOCS = Lock.NUMLOCS + 2*Cond.NUMLOCS + 5;
+Buffer.NUMINTS = Lock.NUMINTS + 2*Cond.NUMINTS + 5;
 
 // Initialize shared memory for a Buffer object (its private memory,
 // not the buffer memory proper).
 //
 // 'iab' is a SharedInt32Array, for book-keeping data.
-// 'ibase' is the first of Buffer.NUMLOCS locations in iab reserved
+// 'ibase' is the first of Buffer.NUMINTS locations in iab reserved
 // for this Buffer.
 //
 // Returns 'ibase'.
@@ -74,8 +74,8 @@ Buffer.initialize =
 	iab[producersWaitingIdx] = 0;
 	iab[consumersWaitingIdx] = 0;
 	var lockIdx = ibase+5;
-	var nonemptyIdx = lockIdx + Lock.NUMLOCS;
-	var nonfullIdx = nonemptyIdx + Cond.NUMLOCS;
+	var nonemptyIdx = lockIdx + Lock.NUMINTS;
+	var nonfullIdx = nonemptyIdx + Cond.NUMINTS;
 	Lock.initialize(iab, lockIdx);
 	Cond.initialize(iab, nonemptyIdx);
 	Cond.initialize(iab, nonfullIdx);
