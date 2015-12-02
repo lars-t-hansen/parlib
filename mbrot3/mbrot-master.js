@@ -82,7 +82,7 @@ function displayIt() {
     }
 
     // We could cache the temp array but it's small potatoes, and it's GC'd.
-    id.data.set(new SharedUint8Array(sab, img.mem.bytePtr(), height*width*4));
+    id.data.set(new Uint8Array(sab, img.mem.bytePtr(), height*width*4));
     cx.putImageData( id, 0, 0 );
 
     if (++iterations > maxit && !completed) {

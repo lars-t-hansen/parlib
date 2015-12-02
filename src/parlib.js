@@ -199,9 +199,9 @@ const _sharedVar_loc = 8;
 const _noalloc = {};            // A cookie used in object construction.
 
 var _sab;                       // SharedArrayBuffer used for the heap
-var _iab;                       // SharedInt32Array covering the _sab
-var _cab;			// SharedUint16Array covering the _sab
-var _dab;                       // SharedFloat64Array covering the _sab
+var _iab;                       // Shared Int32Array covering the _sab
+var _cab;			// Shared Uint16Array covering the _sab
+var _dab;                       // Shared Float64Array covering the _sab
 
 var _IAB;
 var _DAB;
@@ -249,9 +249,9 @@ SharedHeap.setup =
 	if (SharedHeap.pid != -1)
 	    throw new Error("Heap already initialized");
         _sab = sab;
-        _iab = new SharedInt32Array(sab);
-	_cab = new SharedUint16Array(sab);
-        _dab = new SharedFloat64Array(sab);
+        _iab = new Int32Array(sab);
+	_cab = new Uint16Array(sab);
+        _dab = new Float64Array(sab);
 	_IAB = _iab;
 	_DAB = _dab;
         switch (whoami) {
@@ -429,7 +429,7 @@ const SharedArray = {};
             }
             var a = new constructor(_sab, (d == _array_float64_desc ? 16 : 12)+(p*4), nelements);
             a._base = p;
-            // A SharedArray.ref is currently just a SharedInt32Array, we don't want
+            // A SharedArray.ref is currently just a shared Int32Array, we don't want
             // to place these methods on the prototype.
 	    //
 	    // It appears 'this[index]' is faster than 'a[index]', by a little bit,
@@ -447,24 +447,24 @@ const SharedArray = {};
 
     var itag = _typetag++;
     SharedArray.int32 =
-        SharedArrayConstructor(_array_int32_desc, SharedInt32Array, itag);
+        SharedArrayConstructor(_array_int32_desc, Int32Array, itag);
     _typetable[itag] = SharedArray.int32;
-    SharedInt32Array.prototype.bytePtr =
+    Int32Array.prototype.bytePtr =
         function () {
             return this._base*4 + 12;
         };
 
     var rtag = _typetag++;
     SharedArray.ref =
-        SharedArrayConstructor(_array_ref_desc, SharedInt32Array, rtag);
+        SharedArrayConstructor(_array_ref_desc, Int32Array, rtag);
     _typetable[rtag] = SharedArray.ref;
     // bytePtr is inherited from SharedArray.int32
 
     var ftag = _typetag++;
     SharedArray.float64 =
-        SharedArrayConstructor(_array_float64_desc, SharedFloat64Array, ftag);
+        SharedArrayConstructor(_array_float64_desc, Float64Array, ftag);
     _typetable[ftag] = SharedArray.float64;
-    SharedFloat64Array.prototype.bytePtr =
+    Float64Array.prototype.bytePtr =
         function () {
             return this._base*4 + 16; // *4 even for double arrays, but also padding
         };

@@ -27,7 +27,7 @@ function Master(memSize, numWorkers, workerURL) {
     const sab = SharedHeap.allocate(memSize + 640*1024);
     SharedHeap.setup(sab, "master");
 
-    const flags = new SharedInt32Array(32*numWorkers); // 128 bytes per worker
+    const flags = new Int32Array(32*numWorkers*4); // 128 bytes per worker
 
     this.flags = flags;		// Worker n uses flags[n*32], where n is pid-1
     this.barrier = new CyclicBarrier().init(numWorkers);

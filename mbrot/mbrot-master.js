@@ -88,7 +88,7 @@ function displayIt() {
     for ( var y=200 ; y < 800 ; y++ ) {
 	// This is gross because it knows too much about internals.  It seems clear
 	// that we'd want to abstract / hide it somehow.
-	var tmp = new SharedUint8Array(sab, mem._base + y*width*4 + X*4, W*4);
+	var tmp = new Uint8Array(sab, mem._base + y*width*4 + X*4, W*4);
 	id.data.set(tmp);
 	cx.putImageData( id, X, y );
     }

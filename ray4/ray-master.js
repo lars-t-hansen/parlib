@@ -68,7 +68,7 @@ function displayIt() {
     var mycanvas = document.getElementById("mycanvas");
     var cx = mycanvas.getContext('2d');
     var id  = cx.createImageData(width, height);
-    id.data.set(new SharedUint8Array(sab, mem.bytePtr(), height*width*4));
+    id.data.set(new Uint8Array(sab, mem.bytePtr(), height*width*4));
     cx.putImageData( id, 0, 0 );
 
     return 0;
